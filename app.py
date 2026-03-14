@@ -7,51 +7,59 @@ import io
 # 1. Налаштування сторінки
 st.set_page_config(page_title="Тех-Помічник", layout="centered")
 
-# 2. Підключення ключа з налаштувань (Secrets)
+# 2. Підключення ключа
 try:
     api_key = st.secrets["GOOGLE_API_KEY"]
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-1.5-flash')
-except:
-    st.error("Помилка: API Key не налаштовано в Secrets! Будь ласка, додайте його в налаштуваннях Streamlit.")
+except Exception as e:
+    st.error("Помилка конфігурації API.")
     st.stop()
 
 st.title("🤖 Технічний Помічник")
-st.write("Завантажте документ (PDF або TXT) і ставте питання.")
+st.write("Завантажте документ і ставте питання.")
 
-# 3. Поле для завантаження файлу
-uploaded_file = st.file_uploader("Оберіть файл", type=['pdf', 'txt'])
+uploaded_file = st.file_uploader("Оберіть файл (PDF або TXT)", type=['pdf', 'txt'])
 
 if uploaded_file:
-    # Читання тексту з файлу
+    # 3. Витягуємо текст
     full_text = ""
-    if uploaded_file.type == "application/pdf":
-        pdf_reader = PyPDF2.PdfReader(uploaded_file)
-        for page in pdf_reader.pages:
-            text = page.extract_text()
-            if text:
-                full_text += text
-    else:
-        full_text = uploaded_file.read().decode("utf-8")
+    try:
+        if uploaded_file.type == "application/pdf":
+            pdf_reader = PyPDF2.PdfReader(uploaded_file)
+            for page in pdf_reader.pages:
+                t = page.extract_text()
+                if t:
+                    full_text += t + "\n"
+        else:
+            full_text = uploaded_file.read().decode("utf-8")
+        
+        # Обмежуємо обсяг тексту, щоб не було помилки InvalidArgument (залишаємо перші 30к символів)
+        full_text = full_text[:30000] 
+        
+    except Exception as e:
+        st.error(f"Помилка при читанні файлу: {e}")
 
-    # 4. Поле для введення питання
-    user_query = st.text_input("Ваше питання (можна продиктувати через мікрофон):")
+    # 4. Поле для питання
+    user_query = st.text_input("Ваше питання:")
 
-    if user_query:
-        with st.spinner('Шукаю відповідь у документі...'):
-            # Формуємо запит до ШІ
-            prompt = f"Ти технічний експерт. Відповідай коротко і по суті. Використовуй цей текст: {full_text}. Питання: {user_query}"
-            response = model.generate_content(prompt)
-            answer_text = response.text
-            
-            # Виводимо текстову відповідь
-            st.subheader("Відповідь:")
-            st.info(answer_text)
+    if user_query and full_text:
+        with st.spinner('Шукаю відповідь...'):
+            try:
+                # Чіткий промпт для ШІ
+                prompt = f"Ти технічний експерт. На основі наданого тексту дай коротку і точну відповідь українською мовою. Якщо в тексті немає відповіді, так і скажи. \n\n ТЕКСТ ДОКУМЕНТА: {full_text} \n\n ПИТАННЯ: {user_query}"
+                
+                response = model.generate_content(prompt)
+                
+                if response:
+                    st.subheader("Відповідь:")
+                    st.info(response.text)
 
-            # 5. Кнопка для озвучки
-            if st.button("🔊 Озвучити відповідь"):
-                with st.spinner('Генерую голос...'):
-                    tts = gTTS(text=answer_text, lang='uk')
-                    fp = io.BytesIO()
-                    tts.write_to_fp(fp)
-                    st.audio(fp, format="audio/mp3")
+                    # 5. Кнопка для озвучки
+                    if st.button("🔊 Озвучити відповідь"):
+                        tts = gTTS(text=response.text, lang='uk')
+                        fp = io.BytesIO()
+                        tts.write_to_fp(fp)
+                        st.audio(fp, format="audio/mp3")
+            except Exception as e:
+                st.error(f"ШІ не зміг обробити запит. Спробуйте поставити питання інакше. Деталі: {e}")
