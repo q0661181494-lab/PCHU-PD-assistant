@@ -10,10 +10,10 @@ st.set_page_config(page_title="Тех-Помічник", layout="centered")
 try:
     if "GOOGLE_API_KEY" in st.secrets:
         genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-        # Використовуємо базову назву моделі
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # ЗМІНЕНО: Використовуємо іншу назву моделі, яка працює з v1beta
+        model = genai.GenerativeModel('models/gemini-1.5-flash')
     else:
-        st.error("Ключ API не знайдено в Secrets!")
+        st.error("Ключ API не знайдено!")
         st.stop()
 except Exception as e:
     st.error(f"Помилка ініціалізації: {e}")
@@ -29,14 +29,13 @@ if uploaded_file:
     try:
         if uploaded_file.type == "application/pdf":
             pdf_reader = PyPDF2.PdfReader(uploaded_file)
-            # Читаємо лише перші 20 сторінок для надійності тесту
             for i, page in enumerate(pdf_reader.pages[:20]):
                 t = page.extract_text()
                 if t: full_text += t + "\n"
         else:
             full_text = uploaded_file.read().decode("utf-8")
         
-        full_text = full_text[:20000] # Обмежуємо обсяг тексту
+        full_text = full_text[:20000]
         
     except Exception as e:
         st.error(f"Не вдалося прочитати файл: {e}")
@@ -47,20 +46,17 @@ if uploaded_file:
         with st.spinner('Зачекайте, ШІ формує відповідь...'):
             try:
                 # Надсилаємо запит
-                prompt = f"Ти технічний помічник. На основі тексту нижче дай коротку відповідь українською мовою. \n\n ТЕКСТ: {full_text} \n\n ПИТАННЯ: {user_query}"
+                prompt = f"Контекст: {full_text} \n\n Питання: {user_query} \n\n Відповідай українською мовою."
                 response = model.generate_content(prompt)
                 
                 if response and response.text:
                     st.subheader("Відповідь:")
                     st.success(response.text)
 
-                    if st.button("🔊 Озвучити відповідь"):
+                    if st.button("🔊 Озвучити"):
                         tts = gTTS(text=response.text, lang='uk')
                         fp = io.BytesIO()
                         tts.write_to_fp(fp)
                         st.audio(fp, format="audio/mp3")
-                else:
-                    st.warning("ШІ не зміг сформувати текст. Спробуйте інше питання.")
             except Exception as e:
-                # Виводимо реальну причину помилки для діагностики
                 st.error(f"Помилка від Google: {str(e)}")
