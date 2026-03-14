@@ -4,66 +4,63 @@ import PyPDF2
 from gtts import gTTS
 import io
 
-# 1. Налаштування інтерфейсу
 st.set_page_config(page_title="Тех-Помічник", layout="centered")
 
-# 2. Ініціалізація ШІ
+# 1. Спроба підключення до ШІ
 try:
-    api_key = st.secrets["GOOGLE_API_KEY"]
-    genai.configure(api_key=api_key)
-    
-    # Використовуємо базову назву моделі, яку Google підтримує найдовше
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    if "GOOGLE_API_KEY" in st.secrets:
+        genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+        # Використовуємо базову назву моделі
+        model = genai.GenerativeModel('gemini-1.5-flash')
+    else:
+        st.error("Ключ API не знайдено в Secrets!")
+        st.stop()
 except Exception as e:
-    st.error(f"Помилка конфігурації: {e}")
+    st.error(f"Помилка ініціалізації: {e}")
     st.stop()
 
 st.title("🤖 Технічний Помічник")
-st.write("Завантажте документ і ставте питання.")
+st.write("Завантажте файл та натисніть Enter після введення питання.")
 
-# 3. Завантаження файлу
-uploaded_file = st.file_uploader("Оберіть файл (PDF або TXT)", type=['pdf', 'txt'])
+uploaded_file = st.file_uploader("Оберіть PDF або TXT", type=['pdf', 'txt'])
 
 if uploaded_file:
     full_text = ""
     try:
         if uploaded_file.type == "application/pdf":
             pdf_reader = PyPDF2.PdfReader(uploaded_file)
-            for i, page in enumerate(pdf_reader.pages):
-                if i > 50: break # Обмеження для стабільності
+            # Читаємо лише перші 20 сторінок для надійності тесту
+            for i, page in enumerate(pdf_reader.pages[:20]):
                 t = page.extract_text()
                 if t: full_text += t + "\n"
         else:
             full_text = uploaded_file.read().decode("utf-8")
         
-        full_text = full_text[:30000] # Залишаємо початок документа
+        full_text = full_text[:20000] # Обмежуємо обсяг тексту
         
     except Exception as e:
-        st.error(f"Помилка при читанні файлу: {e}")
+        st.error(f"Не вдалося прочитати файл: {e}")
 
-    # 4. Введення питання
-    user_query = st.text_input("Ваше питання (натисніть Enter після введення):")
+    user_query = st.text_input("Ваше питання:")
 
     if user_query and full_text:
-        with st.spinner('ШІ аналізує документ...'):
+        with st.spinner('Зачекайте, ШІ формує відповідь...'):
             try:
-                # Обов'язково вказуємо мову в інструкції
-                prompt = f"Контекст: {full_text}\n\nПитання: {user_query}\n\nДай коротку відповідь українською мовою."
-                
-                # Запит до ШІ
+                # Надсилаємо запит
+                prompt = f"Ти технічний помічник. На основі тексту нижче дай коротку відповідь українською мовою. \n\n ТЕКСТ: {full_text} \n\n ПИТАННЯ: {user_query}"
                 response = model.generate_content(prompt)
                 
                 if response and response.text:
                     st.subheader("Відповідь:")
-                    st.info(response.text)
+                    st.success(response.text)
 
-                    # 5. Озвучка
                     if st.button("🔊 Озвучити відповідь"):
                         tts = gTTS(text=response.text, lang='uk')
                         fp = io.BytesIO()
                         tts.write_to_fp(fp)
                         st.audio(fp, format="audio/mp3")
                 else:
-                    st.warning("Не вдалося отримати відповідь. Спробуйте інше питання.")
+                    st.warning("ШІ не зміг сформувати текст. Спробуйте інше питання.")
             except Exception as e:
-                st.error(f"Сталася помилка запиту. Спробуйте ще раз через хвилину.")
+                # Виводимо реальну причину помилки для діагностики
+                st.error(f"Помилка від Google: {str(e)}")
