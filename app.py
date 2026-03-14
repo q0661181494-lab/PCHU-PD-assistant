@@ -4,57 +4,60 @@ import PyPDF2
 from gtts import gTTS
 import io
 
-# 1. ВАШ КЛЮЧ API
+# 1. ВАШ КЛЮЧ (ПЕРЕВІРЕНО)
 MY_API_KEY = "AIzaSyBNK5emKQAUBGY0G8do89HxQgNO8-EIllY"
 
-# Налаштування AI
+# 2. НАЙБІЛЬШ НАДІЙНИЙ СПОСІБ ПІДКЛЮЧЕННЯ
 try:
     genai.configure(api_key=MY_API_KEY)
-    # Використовуємо найпростішу назву моделі
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    # Шукаємо першу доступну модель, яка вміє генерувати текст
+    available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    # Вибираємо gemini-1.5-flash або будь-яку іншу доступну
+    model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
+    model = genai.GenerativeModel(model_name)
 except Exception as e:
-    st.error(f"Помилка підключення: {e}")
+    st.error(f"Помилка ініціалізації: {e}")
 
-st.set_page_config(page_title="Технічний Помічник", layout="centered")
+st.set_page_config(page_title="Тех-Помічник", layout="centered")
 st.title("🤖 Технічний Помічник")
-st.write("Завантажте документ та поставте питання (натисніть Enter).")
+st.write("Завантажте файл та обов'язково натисніть Enter після питання.")
 
-uploaded_file = st.file_uploader("Оберіть файл (PDF або TXT)", type=['pdf', 'txt'])
+uploaded_file = st.file_uploader("Оберіть PDF або TXT", type=['pdf', 'txt'])
 
 if uploaded_file:
     full_text = ""
     try:
         if uploaded_file.type == "application/pdf":
             pdf_reader = PyPDF2.PdfReader(uploaded_file)
-            for page in pdf_reader.pages[:50]: # Читаємо перші 50 сторінок
+            for page in pdf_reader.pages[:30]: # Читаємо перші 30 сторінок
                 text = page.extract_text()
-                if text:
-                    full_text += text + "\n"
+                if text: full_text += text + "\n"
         else:
             full_text = uploaded_file.read().decode("utf-8")
-        
-        full_text = full_text[:30000] # Обмежуємо обсяг тексту
-        
+        full_text = full_text[:25000] # Обмеження для стабільності
     except Exception as e:
-        st.error(f"Помилка при читанні файлу: {e}")
+        st.error(f"Помилка файлу: {e}")
 
     user_query = st.text_input("Ваше питання:")
 
     if user_query and full_text:
-        with st.spinner('AI аналізує документ...'):
+        with st.spinner('ШІ шукає відповідь...'):
             try:
-                # Чітка інструкція для AI
-                prompt = f"Ти технічний експерт. На основі тексту нижче дай коротку відповідь українською мовою. \n\n ТЕКСТ: {full_text} \n\n ПИТАННЯ: {user_query}"
-                response = model.generate_content(prompt)
+                # Прямий запит без складних налаштувань
+                response = model.generate_content(f"Контекст: {full_text}\n\nПитання: {user_query}\n\nВідповідай коротко українською.")
                 
                 if response and response.text:
                     st.subheader("Відповідь:")
                     st.success(response.text)
 
-                    if st.button("🔊 Озвучити відповідь"):
+                    # Озвучка
+                    if st.button("🔊 Озвучити"):
                         tts = gTTS(text=response.text, lang='uk')
                         fp = io.BytesIO()
                         tts.write_to_fp(fp)
                         st.audio(fp, format="audio/mp3")
+                else:
+                    st.warning("Спробуйте змінити питання.")
             except Exception as e:
-                st.error(f"Сталася помилка запиту (404 або інша): {e}")
+                st.error(f"Помилка ШІ: {str(e)}")
