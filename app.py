@@ -5,7 +5,7 @@ from gtts import gTTS
 import io
 
 # 1. ВАШ КЛЮЧ (ПЕРЕВІРЕНО)
-MY_API_KEY = "AIzaSyBNK5emKQAUBGY0G8do89HxQgNO8-EIllY"
+MY_API_KEY = st.secrets["GOOGLE_API_KEY"]
 
 # 2. НАЙБІЛЬШ НАДІЙНИЙ СПОСІБ ПІДКЛЮЧЕННЯ
 try:
