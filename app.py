@@ -1,7 +1,6 @@
 import streamlit as st
 import google.generativeai as genai
 import PyPDF2
-from gtts import gTTS
 import io
 import os
 import random
@@ -17,10 +16,8 @@ def get_working_model():
                 api_key = st.secrets[name]
                 genai.configure(api_key=api_key)
                 
-                # Автоматично шукаємо правильну назву моделі, щоб уникнути 404
+                # Динамічний пошук доступної моделі
                 available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                
-                # Пріоритет на flash, якщо ні — беремо першу доступну
                 model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
                 
                 return genai.GenerativeModel(model_name)
@@ -94,10 +91,5 @@ if (user_query or search_button) and final_context:
                 st.subheader("Відповідь:")
                 st.success(response.text)
                 
-                if st.button("🔊 Озвучити"):
-                    tts = gTTS(text=response.text, lang='uk')
-                    fp = io.BytesIO()
-                    tts.write_to_fp(fp)
-                    st.audio(fp, format="audio/mp3")
             except Exception as e:
                 st.error(f"Помилка: {e}")
