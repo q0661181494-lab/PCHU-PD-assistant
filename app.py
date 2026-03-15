@@ -9,21 +9,14 @@ import os
 try:
     api_key = st.secrets["GOOGLE_API_KEY"]
     genai.configure(api_key=api_key)
-    
-    # Виправляємо помилку: беремо першу доступну назву моделі зі списку
     all_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-    
-    if 'models/gemini-1.5-flash' in all_models:
-        model_name = 'models/gemini-1.5-flash'
-    else:
-        model_name = all_models[0] # беремо перший доступний рядок, а не весь список
-        
+    model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in all_models else all_models[0]
     model = genai.GenerativeModel(model_name)
 except Exception as e:
     st.error(f"Помилка конфігурації: {e}")
     st.stop()
 
-st.set_page_config(page_title="Технічна бібліотека ПЧУ-5", layout="centered")
+st.set_page_config(page_title="Технічна бібліотека ст. Ворожба", layout="centered")
 st.title("📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5")
 
 # --- 2. ФУНКЦІЯ ЧИТАННЯ PDF ---
@@ -39,28 +32,16 @@ def extract_text_from_pdf(file_path, max_pages=100):
     except:
         return ""
 
-# --- 3. ЗБІР ФАЙЛІВ З ГІТХАБУ ---
+# --- 3. ЗБІР ФАЙЛІВ ---
 available_files = [f for f in os.listdir(".") if f.endswith(".pdf")]
-
 if not available_files:
-    st.warning("⚠️ Завантажте PDF-файли на GitHub (Add file -> Upload).")
+    st.warning("⚠️ Завантажте PDF-файли на GitHub.")
     st.stop()
 
 # --- 4. ІНТЕРФЕЙС НАЛАШТУВАНЬ ---
 st.subheader("⚙️ Налаштування пошуку")
-
-selected_option = st.selectbox(
-    "Оберіть інструкцію або пошук по всій базі:",
-    ["🔍 Шукати в усіх документах одночасно"] + available_files
-)
-
-# За замовчуванням — стисла (index=0)
-answer_mode = st.radio(
-    "Якою має бути відповідь?",
-    ["Стисла (головні тези)", "Розгорнута (детально з пунктами)"],
-    index=0,
-    horizontal=True
-)
+selected_option = st.selectbox("Оберіть інструкцію або пошук по всій базі:", ["🔍 Шукати в усіх документах одночасно"] + available_files)
+answer_mode = st.radio("Якою має бути відповідь?", ["Стисла (головні тези)", "Розгорнута (детально з пунктами)"], index=0, horizontal=True)
 
 # --- 5. ПІДГОТОВКА ТЕКСТУ ---
 final_context = ""
@@ -69,42 +50,32 @@ if selected_option == "🔍 Шукати в усіх документах одн
         final_context += f"\n--- ФАЙЛ: {file} ---\n" + extract_text_from_pdf(file, max_pages=15)
 else:
     final_context = extract_text_from_pdf(selected_option, max_pages=100)
-
 final_context = final_context[:100000]
 
-# --- 6. ПОШУК З ЛУПОЮ ---
+# --- 6. ПОШУК З ЛУПОЮ (ОНОВЛЕНО) ---
 st.write("---")
-col1, col2 = st.columns([0.85, 0.15])
-
+col1, col2 = st.columns([0.9, 0.1])
 with col1:
-    user_query = st.text_input("Ваше питання:", placeholder="Наприклад: Яка норма ширини колії?")
-
+    user_query = st.text_input("", placeholder="Напишіть ваше питання тут...", label_visibility="collapsed")
 with col2:
-    st.write("##") 
     search_button = st.button("🔍")
 
 if (user_query or search_button) and final_context:
     if not user_query:
-        st.warning("Спочатку впишіть питання.")
+        st.warning("Спочатку напишіть питання.")
     else:
         with st.spinner('ШІ аналізує документацію...'):
             try:
-                if answer_mode == "Стисла (головні тези)":
-                    style_instr = "Надай дуже коротку відповідь українською, тільки факти та цифри."
-                else:
-                    style_instr = "Надай максимально повну відповідь українською, з цитатами та пунктами правил."
-
-                prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nІнструкція: {style_instr}"
-                
+                style_instr = "Стисло" if answer_mode == "Стисла (головні тези)" else "Максимально розгорнуто"
+                prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nІнструкція: {style_instr} українською."
                 response = model.generate_content(prompt)
                 st.subheader("Відповідь:")
                 st.success(response.text)
                 
-                if st.button("🔊 Озвучити відповідь"):
+                if st.button("🔊 Озвучити"):
                     tts = gTTS(text=response.text, lang='uk')
                     fp = io.BytesIO()
                     tts.write_to_fp(fp)
                     st.audio(fp, format="audio/mp3")
-                        
             except Exception as e:
                 st.error(f"Помилка ШІ: {e}")
