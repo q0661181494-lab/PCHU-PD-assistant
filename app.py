@@ -19,7 +19,7 @@ try:
 except Exception as e:
     st.error(f"Помилка ініціалізації: {e}")
 
-st.set_page_config(page_title="Тех-Помічник", layout="centered")
+st.set_page_config(page_title="Екзамен ЦП-0269", layout="centered")
 st.title("🤖 Технічний Помічник")
 st.write("Завантажте файл та обов'язково натисніть Enter після питання.")
 
