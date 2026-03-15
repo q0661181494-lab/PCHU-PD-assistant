@@ -18,7 +18,7 @@ except Exception as e:
     st.stop()
 
 st.set_page_config(page_title="Технічна бібліотека ПЧУ-5", layout="centered")
-st.title("📚 РОЗУМНАА ТЕХНІЧНА БІБЛІОТЕКА КОЛІЙНИКА")
+st.title("📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА КОЛІЙНИКА")
 
 # --- 2. ФУНКЦІЯ ЧИТАННЯ PDF ---
 def extract_text_from_pdf(file_path, max_pages=50):
