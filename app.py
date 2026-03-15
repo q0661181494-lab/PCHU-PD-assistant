@@ -6,9 +6,8 @@ import io
 import os
 import random
 
-# --- 1. ПІДКЛЮЧЕННЯ (МАКСИМАЛЬНО ПРОСТЕ ТА НАДІЙНЕ) ---
+# --- 1. ПІДКЛЮЧЕННЯ (ПРОФЕСІЙНЕ ВИРІШЕННЯ ПОМИЛКИ 404) ---
 def get_working_model():
-    # Додайте ключі KEY1, KEY2, KEY3... у Secrets вашого Streamlit
     key_names = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
     random.shuffle(key_names)
     
@@ -17,10 +16,15 @@ def get_working_model():
             try:
                 api_key = st.secrets[name]
                 genai.configure(api_key=api_key)
-                # Використовуємо базову назву моделі без зайвих тестів
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                return model
-            except:
+                
+                # Автоматично шукаємо правильну назву моделі, щоб уникнути 404
+                available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                
+                # Пріоритет на flash, якщо ні — беремо першу доступну
+                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
+                
+                return genai.GenerativeModel(model_name)
+            except Exception:
                 continue 
     return None
 
@@ -30,10 +34,8 @@ model = get_working_model()
 st.set_page_config(page_title="Технічна бібліотека ст. Ворожба", layout="centered")
 st.title("📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5")
 
-# Якщо модель не підключилася, виводимо конкретну пораду
 if not model:
-    st.error("❌ Помилка підключення до Google AI. Перевірте, чи правильно вказано KEY1 у Secrets (Налаштування -> Secrets).")
-    st.info("Переконайтеся, що запис у Secrets виглядає так: KEY1 = \"ваш_ключ\"")
+    st.error("❌ Не вдалося підключитися до ШІ. Перевірте ключі в Secrets.")
     st.stop()
 
 # --- 3. ФУНКЦІЯ ЧИТАННЯ PDF ---
@@ -47,35 +49,28 @@ def extract_text_from_pdf(file_path, max_pages=30):
                 t = page.extract_text()
                 if t: text += t + "\n"
         return text
-    except:
-        return ""
+    except: return ""
 
 # --- 4. ЗБІР ФАЙЛІВ ---
 available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
 if not available_files:
-    st.warning("⚠️ Будь ласка, завантажте PDF-файли в репозиторій GitHub.")
+    st.warning("⚠️ Файли .pdf не знайдені.")
     st.stop()
 
 # --- 5. НАЛАШТУВАННЯ ПОШУКУ ---
 st.write("---")
 selected_option = st.selectbox("Оберіть інструкцію:", ["🔍 Шукати в усіх документах одночасно"] + available_files)
+answer_mode = st.radio("Оберіть тип відповіді:", ["Стисла (головні тези)", "Розгорнута (детально)"], index=0, horizontal=True)
 
-answer_mode = st.radio(
-    "Оберіть тип відповіді:", 
-    ["Стисла (головні тези)", "Розгорнута (детально)"], 
-    index=0, horizontal=True
-)
-
-# --- 6. ПІДГОТОВКА ТЕКСТУ (ЗМЕНШЕНО ДЛЯ СТАБІЛЬНОСТІ) ---
+# --- 6. ПІДГОТОВКА ТЕКСТУ (ОПТИМІЗОВАНО) ---
 final_context = ""
 if selected_option == "🔍 Шукати в усіх документах одночасно":
     for file in available_files:
         final_context += f"\n--- ФАЙЛ: {file} ---\n" + extract_text_from_pdf(file, max_pages=5)
 else:
-    final_context = extract_text_from_pdf(selected_option, max_pages=50)
+    final_context = extract_text_from_pdf(selected_option, max_pages=60)
 
-# Обмеження до 20к символів, щоб гарантовано проходити по лімітах безкоштовної версії
-final_context = final_context[:20000]
+final_context = final_context[:25000]
 
 # --- 7. ПОШУК З ЛУПОЮ ---
 st.write("---")
@@ -85,18 +80,17 @@ with col1:
 with col2:
     search_button = st.button("🔍 Пошук")
 
-# --- 8. ВІДПОВІДЬ ---
+# --- 8. ЛОГІКА ВІДПОВІДІ ---
 if (user_query or search_button) and final_context:
     if not user_query:
         st.warning("Введіть питання.")
     else:
-        with st.spinner('Аналізую документацію...'):
+        with st.spinner('ШІ аналізує документацію...'):
             try:
                 style = "тези" if answer_mode == "Стисла (головні тези)" else "детально з пунктами правил"
-                prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nІнструкція: {style}. Мова: українська."
+                prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nІнструкція: {style}. Відповідай українською."
                 
                 response = model.generate_content(prompt)
-                
                 st.subheader("Відповідь:")
                 st.success(response.text)
                 
