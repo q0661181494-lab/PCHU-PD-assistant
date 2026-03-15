@@ -76,7 +76,7 @@ final_context = final_context[:25000]
 st.write("---")
 col1, col2 = st.columns([0.85, 0.15])
 with col1:
-    user_query = st.text_input("", placeholder="Напишіть ваше питання тут...", label_visibility="collapsed")
+    user_query = st.text_input("", placeholder="Напишіть ваше питання або Білет№...", label_visibility="collapsed")
 with col2:
     search_button = st.button("🔍 Пошук")
 
