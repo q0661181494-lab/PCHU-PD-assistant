@@ -1,8 +1,6 @@
 import streamlit as st
 import google.generativeai as genai
 import PyPDF2
-from gtts import gTTS
-import io
 import os
 import random
 
@@ -59,24 +57,20 @@ if not available_files:
 
 # --- 5. НАЛАШТУВАННЯ ПОШУКУ ---
 st.write("---")
-selected_option = st.selectbox("Оберіть інструкцію:", ["🔍 Шукати в усіх документах одночасно"] + available_files)
+# ВИДАЛЕНО: пункт "Шукати в усіх документах одночасно"
+selected_option = st.selectbox("Оберіть інструкцію:", available_files)
 answer_mode = st.radio("Оберіть тип відповіді:", ["Стисла (головні тези)", "Розгорнута (детально)"], index=0, horizontal=True)
 
 # --- 6. ПІДГОТОВКА ТЕКСТУ (ОПТИМІЗОВАНО) ---
-final_context = ""
-if selected_option == "🔍 Шукати в усіх документах одночасно":
-    for file in available_files:
-        final_context += f"\n--- ФАЙЛ: {file} ---\n" + extract_text_from_pdf(file, max_pages=5)
-else:
-    final_context = extract_text_from_pdf(selected_option, max_pages=60)
-
+# ВИДАЛЕНО: логіку перевірки selected_option на загальний пошук
+final_context = extract_text_from_pdf(selected_option, max_pages=60)
 final_context = final_context[:25000]
 
 # --- 7. ПОШУК З ЛУПОЮ ---
 st.write("---")
 col1, col2 = st.columns([0.85, 0.15])
 with col1:
-    user_query = st.text_input("", placeholder="Напишіть ваше питання або Білет№...", label_visibility="collapsed")
+    user_query = st.text_input("", placeholder="Напишіть ваше питання тут...", label_visibility="collapsed")
 with col2:
     search_button = st.button("🔍 Пошук")
 
@@ -94,10 +88,7 @@ if (user_query or search_button) and final_context:
                 st.subheader("Відповідь:")
                 st.success(response.text)
                 
-                if st.button("🔊 Озвучити"):
-                    tts = gTTS(text=response.text, lang='uk')
-                    fp = io.BytesIO()
-                    tts.write_to_fp(fp)
-                    st.audio(fp, format="audio/mp3")
+                
             except Exception as e:
                 st.error(f"Помилка: {e}")
+}")
