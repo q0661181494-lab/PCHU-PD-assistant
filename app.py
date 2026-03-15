@@ -6,10 +6,10 @@ import io
 import os
 import random
 
-# --- 1. РОЗУМНЕ ПІДКЛЮЧЕННЯ (РОТАЦІЯ КЛЮЧІВ) ---
+# --- 1. РОЗУМНЕ ПІДКЛЮЧЕННЯ (ПОКРАЩЕНА РОТАЦІЯ) ---
 def get_working_model():
-    # Додайте сюди назви ключів, які ви прописали в Secrets (наприклад, KEY1, KEY2)
-    key_names = ["KEY1", "KEY2", "KEY3"] 
+    # Додайте ключі KEY1, KEY2, KEY3, KEY4, KEY5 у Secrets
+    key_names = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
     random.shuffle(key_names)
     
     for name in key_names:
@@ -17,11 +17,9 @@ def get_working_model():
             try:
                 api_key = st.secrets[name]
                 genai.configure(api_key=api_key)
-                all_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in all_models else all_models
-                model = genai.GenerativeModel(model_name)
-                # Тестова перевірка ключа
-                model.generate_content("test", generation_config={"max_output_tokens": 1})
+                # Використовуємо стабільну модель flash
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                # Легка перевірка без великого запиту
                 return model
             except:
                 continue 
@@ -29,20 +27,21 @@ def get_working_model():
 
 model = get_working_model()
 
-if not model:
-    st.error("❌ Всі ліміти вичерпано. Зачекайте 1 хвилину або додайте нові ключі з інших акаунтів.")
-    st.stop()
-
-# --- 2. ІНТЕРФЕЙС (ОНОВЛЕНО ЗГІДНО З ВАШИМ МАЛЮНКОМ) ---
+# --- 2. ІНТЕРФЕЙС ---
 st.set_page_config(page_title="Технічна бібліотека ст. Ворожба", layout="centered")
 st.title("📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5")
 
+if not model:
+    st.error("❌ Жоден API-ключ не працює або вони не додані в Secrets. Додайте KEY1, KEY2 тощо.")
+    st.stop()
+
 # --- 3. ФУНКЦІЯ ЧИТАННЯ PDF ---
-def extract_text_from_pdf(file_path, max_pages=100):
+def extract_text_from_pdf(file_path, max_pages=50):
     text = ""
     try:
         with open(file_path, "rb") as f:
             reader = PyPDF2.PdfReader(f)
+            # Обмежуємо кількість сторінок для економії лімітів
             for page in reader.pages[:max_pages]:
                 t = page.extract_text()
                 if t: text += t + "\n"
@@ -50,63 +49,56 @@ def extract_text_from_pdf(file_path, max_pages=100):
     except:
         return ""
 
-# --- 4. ЗБІР ФАЙЛІВ З ГІТХАБУ ---
+# --- 4. ЗБІР ФАЙЛІВ ---
 available_files = [f for f in os.listdir(".") if f.endswith(".pdf")]
 if not available_files:
-    st.warning("⚠️ Завантажте PDF-файли на GitHub.")
+    st.warning("⚠️ PDF-файли не знайдені в репозиторії.")
     st.stop()
 
-# --- 5. НАЛАШТУВАННЯ ПОШУКУ ---
+# --- 5. НАЛАШТУВАННЯ ---
 st.write("---")
-selected_option = st.selectbox("Оберіть інструкцію або пошук по всій базі:", ["🔍 Шукати в усіх документах одночасно"] + available_files)
+selected_option = st.selectbox("Оберіть інструкцію:", ["🔍 Шукати в усіх документах одночасно"] + available_files)
 
-# За замовчуванням — стисла (index=0)
 answer_mode = st.radio(
     "Оберіть тип відповіді:", 
-    ["Стисла (головні тези)", "Розгорнута (детально з пунктами правил)"], 
-    index=0, 
-    horizontal=True
+    ["Стисла (головні тези)", "Розгорнута (детально)"], 
+    index=0, horizontal=True
 )
 
-# --- 6. ПІДГОТОВКА ТЕКСТУ ---
+# --- 6. ПІДГОТОВКА ТЕКСТУ (ОПТИМІЗОВАНО) ---
 final_context = ""
 if selected_option == "🔍 Шукати в усіх документах одночасно":
     for file in available_files:
-        final_context += f"\n--- ФАЙЛ: {file} ---\n" + extract_text_from_pdf(file, max_pages=15)
+        # Беремо по 10 сторінок з кожного файлу для загального пошуку
+        final_context += f"\n--- ФАЙЛ: {file} ---\n" + extract_text_from_pdf(file, max_pages=10)
 else:
-    final_context = extract_text_from_pdf(selected_option, max_pages=100)
-final_context = final_context[:100000]
+    final_context = extract_text_from_pdf(selected_option, max_pages=80)
 
-# --- 7. ПОШУК З ЛУПОЮ В ОДИН РЯДОК ---
+# ОБМЕЖЕННЯ: 30 000 символів — ідеально для безкоштовного Gemini
+final_context = final_context[:30000]
+
+# --- 7. ПОШУК ---
 st.write("---")
-col1, col2 = st.columns([0.9, 0.1])
-with col1:
-    user_query = st.text_input("", placeholder="Напишіть ваше питання тут...", label_visibility="collapsed")
-with col2:
-    search_button = st.button("🔍")
+user_query = st.text_input("Ваше питання:", placeholder="Наприклад: норми виправлення просадок...")
 
-if (user_query or search_button) and final_context:
-    if not user_query:
-        st.warning("Будь ласка, введіть питання.")
-    else:
-        with st.spinner('ШІ аналізує документацію...'):
-            try:
-                if answer_mode == "Стисла (головні тези)":
-                    style_instr = "Надай дуже коротку відповідь українською, тільки головні тези та цифри."
-                else:
-                    style_instr = "Надай максимально повну, розгорнуту та аргументовану відповідь українською мовою з цитатами та пунктами правил."
-
-                prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nІнструкція: {style_instr}"
-                
-                response = model.generate_content(prompt)
-                st.subheader("Відповідь:")
-                st.success(response.text)
-                
-                if st.button("🔊 Озвучити відповідь"):
-                    tts = gTTS(text=response.text, lang='uk')
-                    fp = io.BytesIO()
-                    tts.write_to_fp(fp)
-                    st.audio(fp, format="audio/mp3")
-            except Exception as e:
-                st.error(f"Сталася помилка при запиті: {e}")
-
+if user_query and final_context:
+    with st.spinner('ШІ аналізує базу даних...'):
+        try:
+            style = "Коротко, тези" if answer_mode == "Стисла (головні тези)" else "Детально, з пунктами правил"
+            prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nІнструкція: {style}. Мова: українська."
+            
+            response = model.generate_content(prompt)
+            st.subheader("Відповідь:")
+            st.success(response.text)
+            
+            # Озвучка
+            if st.button("🔊 Озвучити"):
+                tts = gTTS(text=response.text, lang='uk')
+                fp = io.BytesIO()
+                tts.write_to_fp(fp)
+                st.audio(fp, format="audio/mp3")
+        except Exception as e:
+            if "429" in str(e):
+                st.error("Помилка: Занадто багато запитів. Зачекайте 30 секунд.")
+            else:
+                st.error(f"Помилка: {e}")
