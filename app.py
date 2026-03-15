@@ -1,41 +1,44 @@
 import streamlit as st
 import google.generativeai as genai
 import PyPDF2
-import io
 import os
 import random
 
-# --- 1. ПІДКЛЮЧЕННЯ (ПРОФЕСІЙНЕ ВИРІШЕННЯ ПОМИЛКИ 404) ---
-def get_working_model():
+# --- 1. ФУНКЦІЯ ЗАПИТУ З АВТОМАТИЧНОЮ РОТАЦІЄЮ КЛЮЧІВ ---
+def ask_gemini(prompt):
     key_names = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
     random.shuffle(key_names)
     
     for name in key_names:
         if name in st.secrets:
             try:
-                api_key = st.secrets[name]
-                genai.configure(api_key=api_key)
-                
-                # Динамічний пошук доступної моделі
+                genai.configure(api_key=st.secrets[name])
                 available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
                 model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
                 
-                return genai.GenerativeModel(model_name)
-            except Exception:
-                continue 
-    return None
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(prompt)
+                return response.text
+            except Exception as e:
+                if "429" in str(e):
+                    continue
+                else:
+                    return f"Помилка API: {e}"
+    
+    return "❌ Всі доступні ключі вичерпали свої ліміти. Спробуйте через 1 хвилину."
 
-model = get_working_model()
+# --- 2. ЛОГІКА ОЧИЩЕННЯ ТЕКСТУ ---
+if "user_query" not in st.session_state:
+    st.session_state.user_query = ""
 
-# --- 2. ІНТЕРФЕЙС ---
+def clear_text():
+    st.session_state.user_query = ""
+
+# --- 3. ІНТЕРФЕЙС ---
 st.set_page_config(page_title="Технічна бібліотека ст. Ворожба", layout="centered")
 st.title("📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5")
 
-if not model:
-    st.error("❌ Не вдалося підключитися до ШІ. Перевірте ключі в Secrets.")
-    st.stop()
-
-# --- 3. ФУНКЦІЯ ЧИТАННЯ PDF ---
+# --- 4. ЧИТАННЯ PDF ---
 def extract_text_from_pdf(file_path, max_pages=30):
     text = ""
     try:
@@ -48,18 +51,18 @@ def extract_text_from_pdf(file_path, max_pages=30):
         return text
     except: return ""
 
-# --- 4. ЗБІР ФАЙЛІВ ---
+# --- 5. ФАЙЛИ ---
 available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
 if not available_files:
     st.warning("⚠️ Файли .pdf не знайдені.")
     st.stop()
 
-# --- 5. НАЛАШТУВАННЯ ПОШУКУ ---
+# --- 6. МЕНЮ ---
 st.write("---")
 selected_option = st.selectbox("Оберіть інструкцію:", ["🔍 Шукати в усіх документах одночасно"] + available_files)
-answer_mode = st.radio("Оберіть тип відповіді:", ["Стисла (головні тези)", "Розгорнута (детально)"], index=0, horizontal=True)
+answer_mode = st.radio("Тип відповіді:", ["Стисла", "Розгорнута"], index=0, horizontal=True)
 
-# --- 6. ПІДГОТОВКА ТЕКСТУ (ОПТИМІЗОВАНО) ---
+# --- 7. КОНТЕКСТ ---
 final_context = ""
 if selected_option == "🔍 Шукати в усіх документах одночасно":
     for file in available_files:
@@ -69,27 +72,34 @@ else:
 
 final_context = final_context[:25000]
 
-# --- 7. ПОШУК З ЛУПОЮ ---
+# --- 8. ПОШУК ТА КНОПКИ ---
 st.write("---")
-col1, col2 = st.columns([0.85, 0.15])
-with col1:
-    user_query = st.text_input("", placeholder="Напишіть ваше питання тут...", label_visibility="collapsed")
-with col2:
-    search_button = st.button("🔍 Пошук")
+# Додаємо поле з прив'язкою до session_state
+user_query = st.text_input("", placeholder="Напишіть ваше питання тут...", key="user_query", label_visibility="collapsed")
 
-# --- 8. ЛОГІКА ВІДПОВІДІ ---
-if (user_query or search_button) and final_context:
-    if not user_query:
+# Створюємо три колонки: для пошуку, очищення та відступу
+col1, col2, _ = st.columns([0.2, 0.2, 0.6])
+
+with col1:
+    search_button = st.button("🔍 Пошук", type="primary")
+
+with col2:
+    st.button("🗑️ Очистити", on_click=clear_text)
+
+# --- 9. ЛОГІКА ВІДПОВІДІ ---
+if (search_button) and final_context:
+    if not user_query.strip():
         st.warning("Введіть питання.")
     else:
         with st.spinner('ШІ аналізує документацію...'):
-            try:
-                style = "тези" if answer_mode == "Стисла (головні тези)" else "детально з пунктами правил"
-                prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nІнструкція: {style}. Відповідай українською."
-                
-                response = model.generate_content(prompt)
-                st.subheader("Відповідь:")
-                st.success(response.text)
-                
-            except Exception as e:
-                st.error(f"Помилка: {e}")
+            style = "тези" if answer_mode == "Стисла" else "детально з пунктами правил"
+            prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nІнструкція: {style}. Відповідай українською."
+            
+            answer = ask_gemini(prompt)
+            
+            st.subheader("Відповідь:")
+            if "❌" in answer:
+                st.error(answer)
+            else:
+                st.success("Аналіз завершено!")
+                st.write(answer)
