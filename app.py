@@ -53,7 +53,7 @@ selected_option = st.selectbox(
 answer_mode = st.radio(
     "Якою має бути відповідь?",
     ["Стисла (головні тези)", "Розгорнута (детально з пунктами)"],
-    index=1,
+    index=0,
     horizontal=True
 )
 
