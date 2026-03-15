@@ -91,4 +91,3 @@ if (user_query or search_button) and final_context:
                 
             except Exception as e:
                 st.error(f"Помилка: {e}")
-}")
