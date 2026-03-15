@@ -20,7 +20,7 @@ except Exception as e:
     st.error(f"Помилка ініціалізації: {e}")
 
 st.set_page_config(page_title="Екзамен ЦП-0269", layout="centered")
-st.title("🤖 Технічний Помічник")
+st.title("Екзамен ЦП-0269")
 st.write("Завантажте файл та обов'язково натисніть Enter після питання.")
 
 uploaded_file = st.file_uploader("Оберіть PDF або TXT", type=['pdf', 'txt'])
