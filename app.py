@@ -63,8 +63,8 @@ answer_mode = st.radio("Оберіть тип відповіді:", ["Стисл
 
 # --- 6. ПІДГОТОВКА ТЕКСТУ (ОПТИМІЗОВАНО) ---
 # ВИДАЛЕНО: логіку перевірки selected_option на загальний пошук
-final_context = extract_text_from_pdf(selected_option, max_pages=50)
-final_context = final_context[:25000]
+final_context = extract_text_from_pdf(selected_option, max_pages=500)
+final_context = final_context[:250000]
 
 # --- 7. ПОШУК З ЛУПОЮ ---
 st.write("---")
