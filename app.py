@@ -57,12 +57,10 @@ if not available_files:
 
 # --- 5. НАЛАШТУВАННЯ ПОШУКУ ---
 st.write("---")
-# ВИДАЛЕНО: пункт "Шукати в усіх документах одночасно"
 selected_option = st.selectbox("Оберіть інструкцію:", available_files)
 answer_mode = st.radio("Оберіть тип відповіді:", ["Стисла (головні тези)", "Розгорнута (детально)"], index=0, horizontal=True)
 
 # --- 6. ПІДГОТОВКА ТЕКСТУ (ОПТИМІЗОВАНО) ---
-# ВИДАЛЕНО: логіку перевірки selected_option на загальний пошук
 final_context = extract_text_from_pdf(selected_option, max_pages=500)
 final_context = final_context[:250000]
 
@@ -70,7 +68,7 @@ final_context = final_context[:250000]
 st.write("---")
 col1, col2 = st.columns([0.85, 0.15])
 with col1:
-    user_query = st.text_input("", placeholder="Напишіть ваше питання або Білет №...", label_visibility="collapsed")
+    user_query = st.text_input("", placeholder="Напишіть ваше питання або Білет N...", label_visibility="collapsed")
 with col2:
     search_button = st.button("🔍 Пошук")
 
@@ -88,6 +86,8 @@ if (user_query or search_button) and final_context:
                 st.subheader("Відповідь:")
                 st.success(response.text)
                 
-                
             except Exception as e:
                 st.error(f"Помилка: {e}")
+
+# --- 9. ПІДПИС РОЗРОБНИКА ---
+st.markdown("<br><hr><center><p style='color: gray;'>© 2026 Розробка: ПЧУ-5 Сергій ШИНКАРЕНКО</p></center>", unsafe_allow_html=True)
