@@ -30,7 +30,7 @@ model = get_working_model()
 
 # --- 2. ІНТЕРФЕЙС ---
 st.set_page_config(page_title="Технічна бібліотека ст. Ворожба", layout="centered")
-st.title("📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5")
+st.subheader("📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5")
 
 if not model:
     st.error("❌ Не вдалося підключитися до ШІ. Перевірте ключі в Secrets.")
