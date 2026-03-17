@@ -37,19 +37,43 @@ def get_working_model():
 
 model = get_working_model()
 
-# --- 2. ІНТЕРФЕЙС ---
+# --- 2. ІНТЕРФЕЙС ТА ФІКСАЦІЯ МОБІЛЬНОЇ ВЕРСІЇ ---
 st.set_page_config(
     page_title="Технічна бібліотека ст. Ворожба", 
     layout="centered",
     initial_sidebar_state="collapsed"
 )
 
-# Стилі для кнопок та мобільної версії
+# CSS для кольорових кнопок та ПРИМУСОВОГО одного рядка на мобільних
 st.markdown("""
     <style>
-    div.stButton > button[kind="primary"] { background-color: #28a745 !important; color: white !important; border: none !important; width: 100%; }
-    div.stButton > button[kind="secondary"] { background-color: #dc3545 !important; color: white !important; border: none !important; width: 100%; }
-    [data-testid="column"] { width: 49% !important; flex: 1 1 45% !important; min-width: 45% !important; }
+    /* Зелена кнопка Пошуку */
+    div.stButton > button[kind="primary"] {
+        background-color: #28a745 !important;
+        color: white !important;
+        border: none !important;
+        width: 100% !important;
+    }
+    /* Червона кнопка Очистити */
+    div.stButton > button[kind="secondary"] {
+        background-color: #dc3545 !important;
+        color: white !important;
+        border: none !important;
+        width: 100% !important;
+    }
+    
+    /* ФІКСАЦІЯ ОДНОГО РЯДКА ДЛЯ МОБІЛЬНИХ (Android/iOS) */
+    [data-testid="stHorizontalBlock"] {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+        gap: 10px !important;
+    }
+    [data-testid="column"] {
+        flex: 1 1 50% !important;
+        min-width: 0 !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -62,7 +86,6 @@ with st.sidebar:
         st.success("Доступ відкрито")
         if global_stats:
             df = pd.DataFrame(global_stats)
-            # Фільтруємо лише наявні колонки
             valid_cols = ["Дата/Час", "Запит", "Файл", "Режим", "Час (сек)", "Статус"]
             df_display = df[[c for c in valid_cols if c in df.columns]]
             st.table(df_display[::-1])
@@ -100,10 +123,11 @@ answer_mode = st.radio("Оберіть тип відповіді:", ["Стисл
 final_context = extract_text_from_pdf(selected_option, max_pages=500)
 final_context = final_context[:250000]
 
-# --- 5. ПОШУК ---
+# --- 5. ПОШУК ТА КНОПКИ ---
 st.write("---")
 query_text = st.text_input("Пошук", placeholder="Введіть питання...", key="user_query", label_visibility="collapsed")
 
+# Колонки для кнопок (завжди в один ряд)
 col1, col2 = st.columns(2)
 with col1:
     search_button = st.button("🔍 Пошук", type="primary")
@@ -127,21 +151,25 @@ if search_button and final_context:
                     st.error("Ключі API не працюють.")
                 else:
                     response = model.generate_content(prompt)
+                    # Час у повних секундах
                     process_time = int(time.time() - start_process)
+                    
                     st.subheader("Відповідь:")
                     st.success(response.text)
                     
                     global_stats.append({
                         "Дата/Час": current_time,
                         "Запит": query_text,
-                        "Файл": selected_option,
+                        "Файл": selected_option[:25],
                         "Режим": answer_mode,
                         "Час (сек)": process_time,
                         "Статус": "Успішно ✅"
                     })
             except Exception as e:
                 st.error("Помилка запиту.")
-                global_stats.append({"Дата/Час": current_time, "Запит": query_text, "Статус": "Помилка"})
+                global_stats.append({"Дата/Час": current_time, "Запит": query_text, "Статус": "Помилка", "Час (сек)": 0})
+            
+            if len(global_stats) > 500: global_stats.pop(0)
 
 # --- 7. ПІДПИС ---
 st.markdown("<br><hr><center><p style='color: gray;'>© 2026 Розробка: ПЧУ-5 Сергій ШИНКАРЕНКО</p></center>", unsafe_allow_html=True)
