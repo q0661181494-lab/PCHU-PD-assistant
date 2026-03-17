@@ -30,45 +30,51 @@ def get_working_model():
                 api_key = st.secrets[name]
                 genai.configure(api_key=api_key)
                 available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models
+                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
                 return genai.GenerativeModel(model_name)
             except: continue 
     return None
 
 model = get_working_model()
 
-# --- 2. ІНТЕРФЕЙС ТА СТИЛІЗАЦІЯ ЦЕНТРУВАННЯ ---
+# --- 2. ІНТЕРФЕЙС ТА СТИЛІЗАЦІЯ ---
 st.set_page_config(
     page_title="Технічна бібліотека ст. Ворожба", 
     layout="centered",
     initial_sidebar_state="collapsed"
 )
 
-# CSS для однакових кнопок по центру
+# CSS для хрестика в полі, центрування кнопок та їх кольорів
 st.markdown("""
     <style>
-    /* Центрування блоку з кнопками */
+    /* Активуємо вбудований хрестик очищення в полі введення */
+    input::-webkit-search-cancel-button {
+        -webkit-appearance: searchfield-cancel-button !important;
+        cursor: pointer;
+    }
+    
+    /* Центрування кнопок */
     .stButton {
         display: flex;
         justify-content: center;
     }
     
-    /* Налаштування розміру та вигляду кнопок */
+    /* Розмір та вигляд кнопок */
     div.stButton > button {
-        width: 200px !important; /* Однакова ширина для обох кнопок */
+        width: 200px !important;
         height: 45px !important;
         margin: 5px auto !important;
         border: none !important;
         display: block !important;
     }
     
-    /* Зелений Пошук (Primary) */
+    /* Зелений Пошук */
     div.stButton > button[kind="primary"] {
         background-color: #28a745 !important;
         color: white !important;
     }
     
-    /* Червона Очистка (Secondary) */
+    /* Червона Очистка */
     div.stButton > button[kind="secondary"] {
         background-color: #dc3545 !important;
         color: white !important;
@@ -124,9 +130,9 @@ final_context = final_context[:250000]
 
 # --- 5. ПОШУК ТА КНОПКИ ---
 st.write("---")
+# Використовуємо type="search" через CSS для появи хрестика
 query_text = st.text_input("Пошук", placeholder="Введіть ваше питання тут...", key="user_query", label_visibility="collapsed")
 
-# Кнопки по центру одна під одною
 search_button = st.button("Пошук", type="primary")
 clear_button = st.button("Очистити", type="secondary", on_click=clear_text)
 
