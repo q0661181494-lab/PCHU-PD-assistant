@@ -7,10 +7,9 @@ import pandas as pd
 import time
 from datetime import datetime
 
-# --- 0. ГЛОБАЛЬНА СТАТИСТИКА (СПІЛЬНА) ---
+# --- 0. ГЛОБАЛЬНА СТАТИСТИКА (СПІЛЬНА ПАМ'ЯТЬ) ---
 @st.cache_resource
 def get_global_stats():
-    # Повертає порожній список для збору ТІЛЬКИ потрібних даних
     return []
 
 global_stats = get_global_stats()
@@ -31,18 +30,18 @@ def get_working_model():
                 api_key = st.secrets[name]
                 genai.configure(api_key=api_key)
                 available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
+                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models
                 return genai.GenerativeModel(model_name)
             except: continue 
     return None
 
 model = get_working_model()
 
-# --- 2. ІНТЕРФЕЙС ТА СТИЛІЗАЦІЯ ---
+# --- 2. ІНТЕРФЕЙС ТА ПРИМУСОВЕ ПРИХОВУВАННЯ ПАНЕЛІ ---
 st.set_page_config(
     page_title="Технічна бібліотека ст. Ворожба", 
     layout="centered",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed"  # ЦЕЙ ПАРАМЕТР ЗАКРИВАЄ ПАНЕЛЬ ПРИ ВХОДІ
 )
 
 # CSS для кольорових кнопок та фіксації ряду на мобільних
@@ -74,9 +73,8 @@ with st.sidebar:
     if admin_password == "30033003": 
         st.success("Доступ відкритий")
         if global_stats:
-            # Створюємо таблицю ТІЛЬКИ з потрібними колонками
             df = pd.DataFrame(global_stats)
-            # Переконуємося, що старі колонки (місто/область) видалені, якщо вони раптом потрапили в кеш
+            # Тільки потрібні колонки (без міста та провайдера)
             cols_to_keep = ["Дата/Час", "Пристрій", "Запит", "Файл", "Режим", "Час (сек)", "Статус"]
             df = df[[c for c in cols_to_keep if c in df.columns]]
             
@@ -107,7 +105,7 @@ def extract_text_from_pdf(file_path, max_pages=500):
         return text
     except: return ""
 
-# --- 4. ФАЙЛИ ---
+# --- 4. ЗБІР ФАЙЛІВ ---
 available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
 if not available_files:
     st.warning("⚠️ PDF не знайдені.")
@@ -157,7 +155,6 @@ if (search_button) and final_context:
                 st.subheader("Відповідь:")
                 st.success(response.text)
                 
-                # ЗАПИС БЕЗ МІСТА ТА ОБЛАСТІ
                 global_stats.append({
                     "Дата/Час": current_time,
                     "Пристрій": os_info,
