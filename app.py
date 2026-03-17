@@ -14,7 +14,6 @@ def get_global_stats():
 
 global_stats = get_global_stats()
 
-# Ініціалізація стану текстового поля
 if "user_query" not in st.session_state:
     st.session_state.user_query = ""
 
@@ -31,19 +30,45 @@ def get_working_model():
                 api_key = st.secrets[name]
                 genai.configure(api_key=api_key)
                 available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models
+                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
                 return genai.GenerativeModel(model_name)
             except: continue 
     return None
 
 model = get_working_model()
 
-# --- 2. ІНТЕРФЕЙС ---
+# --- 2. ІНТЕРФЕЙС ТА СТИЛІЗАЦІЯ КНОПОК ---
 st.set_page_config(
     page_title="Технічна бібліотека ст. Ворожба", 
     layout="centered",
     initial_sidebar_state="collapsed"
 )
+
+# CSS для фарбування кнопок та фіксації їх в один ряд
+st.markdown("""
+    <style>
+    /* Зелена кнопка Пошуку (Primary) */
+    div.stButton > button[kind="primary"] {
+        background-color: #28a745 !important;
+        color: white !important;
+        border: None !important;
+        width: 100%;
+    }
+    /* Червона кнопка Очистити (Secondary) */
+    div.stButton > button[kind="secondary"] {
+        background-color: #dc3545 !important;
+        color: white !important;
+        border: None !important;
+        width: 100%;
+    }
+    /* Фіксація колонок для мобільних пристроїв */
+    [data-testid="column"] {
+        width: 48% !important;
+        flex: 1 1 45% !important;
+        min-width: 45% !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 with st.sidebar:
     st.title("⚙️ Налаштування")
@@ -66,7 +91,7 @@ with st.sidebar:
 
 st.subheader("📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5")
 
-# --- 3. ФУНКЦІЯ ЧИТАННЯ PDF ---
+# --- 3. ЧИТАННЯ PDF ---
 def extract_text_from_pdf(file_path, max_pages=500):
     text = ""
     try:
@@ -94,16 +119,16 @@ answer_mode = st.radio("Оберіть тип відповіді:", ["Стисл
 final_context = extract_text_from_pdf(selected_option, max_pages=500)
 final_context = final_context[:250000]
 
-# --- 7. ПОШУК ТА ОЧИЩЕННЯ ---
+# --- 7. ПОШУК ТА КНОПКИ ---
 st.write("---")
-# Поле введення, прив'язане до session_state
 query_text = st.text_input("Пошук", placeholder="Напишіть ваше питання або Білет N...", key="user_query", label_visibility="collapsed")
 
-col1, col2, _ = st.columns([0.2, 0.2, 0.6])
+# Створюємо дві вузькі колонки для кнопок
+col1, col2 = st.columns(2)
 with col1:
-    search_button = st.button("🔍 Пошук", type="primary")
+    search_button = st.button("🔍 Пошук", type="primary", use_container_width=True)
 with col2:
-    st.button("🗑️ Очистити", on_click=clear_text)
+    st.button("🗑️ Очистити", type="secondary", on_click=clear_text, use_container_width=True)
 
 # --- 8. ЛОГІКА ВІДПОВІДІ ---
 if (search_button) and final_context:
