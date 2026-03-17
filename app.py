@@ -44,33 +44,33 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# CSS для кнопок на всю ширину екрана
+# Посилений CSS для кнопок на всю ширину
 st.markdown("""
     <style>
-    /* Активуємо хрестики очищення в полі введення */
+    /* Активуємо хрестик очищення в полі */
     input::-webkit-search-cancel-button {
         -webkit-appearance: searchfield-cancel-button !important;
         cursor: pointer;
     }
     
-    /* Робимо кнопки на всю ширину (100%) */
-    div.stButton > button {
+    /* Примусове розтягування контейнера кнопок */
+    div[data-testid="stButton"] button {
         width: 100% !important;
-        height: 48px !important;
-        margin-top: 10px !important;
-        border: none !important;
-        display: block !important;
+        height: 50px !important;
+        margin-bottom: 10px !important;
+        font-size: 18px !important;
         font-weight: bold !important;
+        border: none !important;
     }
     
-    /* Зелений Пошук */
-    div.stButton > button[kind="primary"] {
+    /* Колір для Пошуку */
+    div[data-testid="stButton"] button[kind="primary"] {
         background-color: #28a745 !important;
         color: white !important;
     }
     
-    /* Червона Очистка */
-    div.stButton > button[kind="secondary"] {
+    /* Колір для Очищення */
+    div[data-testid="stButton"] button[kind="secondary"] {
         background-color: #dc3545 !important;
         color: white !important;
     }
@@ -97,7 +97,18 @@ with st.sidebar:
 
 st.subheader("📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5")
 
-# --- 3. ФУНКЦІЇ ---
+# --- 3. ФАЙЛИ ---
+available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
+if not available_files:
+    st.warning("⚠️ PDF не знайдені.")
+    st.stop()
+
+# --- 4. МЕНЮ ---
+st.write("---")
+selected_option = st.selectbox("Оберіть інструкцію:", available_files)
+answer_mode = st.radio("Оберіть тип відповіді:", ["Стисла", "Розгорнута"], index=0, horizontal=True)
+
+# --- 5. ФУНКЦІЯ ЧИТАННЯ PDF ---
 def extract_text_from_pdf(file_path, max_pages=500):
     text = ""
     try:
@@ -110,29 +121,19 @@ def extract_text_from_pdf(file_path, max_pages=500):
         return text
     except: return ""
 
-available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
-if not available_files:
-    st.warning("⚠️ PDF не знайдені.")
-    st.stop()
-
-# --- 4. МЕНЮ ---
-st.write("---")
-selected_option = st.selectbox("Оберіть інструкцію:", available_files)
-answer_mode = st.radio("Оберіть тип відповіді:", ["Стисла", "Розгорнута"], index=0, horizontal=True)
-
 final_context = extract_text_from_pdf(selected_option, max_pages=500)
 final_context = final_context[:250000]
 
-# --- 5. ПОШУК ТА КНОПКИ ---
+# --- 6. ПОШУК ТА КНОПКИ ---
 st.write("---")
 query_text = st.text_input("Пошук", placeholder="Введіть ваше питання тут...", key="user_query", label_visibility="collapsed")
 
-# Кнопки йдуть одна під одною на всю ширину
-search_button = st.button("Пошук", type="primary")
-clear_button = st.button("Очистити", type="secondary", on_click=clear_text)
+# Використовуємо use_container_width=True для примусового розтягування
+search_button = st.button("Пошук", type="primary", use_container_width=True)
+clear_button = st.button("Очистити", type="secondary", on_click=clear_text, use_container_width=True)
 
-# --- 6. ЛОГІКА ---
-if search_button and final_context:
+# --- 7. ЛОГІКА ---
+if (search_button) and final_context:
     if not query_text.strip():
         st.warning("Введіть питання.")
     else:
@@ -165,5 +166,5 @@ if search_button and final_context:
             
             if len(global_stats) > 500: global_stats.pop(0)
 
-# --- 7. ПІДПИС ---
+# --- 8. ПІДПИС ---
 st.markdown("<br><hr><center><p style='color: gray;'>© 2026 Розробка: ПЧУ-5 Сергій ШИНКАРЕНКО</p></center>", unsafe_allow_html=True)
