@@ -5,36 +5,49 @@ import os
 import random
 from datetime import datetime
 
-# --- 1. ПІДКЛЮЧЕННЯ (ПРОФЕСІЙНЕ ВИРІШЕННЯ ПОМИЛКИ 404) ---
+# --- 0. ІНІЦІАЛІЗАЦІЯ ПАМ'ЯТІ ---
+if "app_stats" not in st.session_state:
+    st.session_state.app_stats = []
+
+# --- 1. ПІДКЛЮЧЕННЯ ШІ ---
 def get_working_model():
     key_names = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
     random.shuffle(key_names)
-    
     for name in key_names:
         if name in st.secrets:
             try:
                 api_key = st.secrets[name]
                 genai.configure(api_key=api_key)
-                
-                # Автоматично шукаємо правильну назву моделі, щоб уникнути 404
                 available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                
-                # Пріоритет на flash, якщо ні — беремо першу доступну
                 model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
-                
                 return genai.GenerativeModel(model_name)
-            except Exception:
-                continue 
+            except: continue 
     return None
 
 model = get_working_model()
 
-# --- 2. ІНТЕРФЕЙС ---
+# --- 2. ІНТЕРФЕЙС ТА СЕКРЕТНИЙ SIDEBAR ---
 st.set_page_config(page_title="Технічна бібліотека ст. Ворожба", layout="centered")
+
+with st.sidebar:
+    st.title("📂 Керування")
+    admin_password = st.text_input("Додати файл інструкції (PDF):", type="password", placeholder="Виберіть файл...")
+    
+    if admin_password == "30033003": 
+        st.success("Доступ до статистики відкрито")
+        st.subheader("📊 Останні запити")
+        if st.session_state.app_stats:
+            st.table(st.session_state.app_stats[::-1])
+            if st.button("🗑️ Очистити"):
+                st.session_state.app_stats = []
+                st.rerun()
+        else:
+            st.info("Запитів ще не було.")
+
 st.subheader("📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5")
 
 if not model:
-    st.error("❌ Не вдалося підключитися до ШІ. Перевірте ключі в Secrets.")
+    st.error("❌ Помилка підключення до ШІ.")
     st.stop()
 
 # --- 3. ФУНКЦІЯ ЧИТАННЯ PDF ---
@@ -56,33 +69,31 @@ if not available_files:
     st.warning("⚠️ Файли .pdf не знайдені.")
     st.stop()
 
-# --- 5. НАЛАШТУВАННЯ ПОШУКУ ---
+# --- 5. МЕНЮ ---
 st.write("---")
 selected_option = st.selectbox("Оберіть інструкцію:", available_files)
 answer_mode = st.radio("Оберіть тип відповіді:", ["Стисла (головні тези)", "Розгорнута (детально)"], index=0, horizontal=True)
 
-# --- 6. ПІДГОТОВКА ТЕКСТУ (ОПТИМІЗОВАНО) ---
+# --- 6. ПІДГОТОВКА ТЕКСТУ ---
 final_context = extract_text_from_pdf(selected_option, max_pages=500)
 final_context = final_context[:250000]
 
-# --- 7. ПОШУК З ЛУПОЮ ---
+# --- 7. ПОШУК ---
 st.write("---")
 col1, col2 = st.columns([0.85, 0.15])
 with col1:
-    user_query = st.text_input("", placeholder="Напишіть ваше питання або Білет N...", label_visibility="collapsed")
+    user_query = st.text_input("Пошук", placeholder="Напишіть ваше питання або Білет N...", label_visibility="collapsed")
 with col2:
     search_button = st.button("🔍 Пошук")
 
-# --- 8. ЛОГІКА ВІДПОВІДІ ТА ЗБІР СТАТИСТИКИ ---
+# --- 8. ЛОГІКА ВІДПОВІДІ ТА ЗАПИС СТАТИСТИКИ ---
 if (user_query or search_button) and final_context:
-    if not user_query:
+    if not user_query.strip():
         st.warning("Введіть питання.")
     else:
-        # Збір технічних даних користувача (максимум без сторонніх сервісів)
         headers = st.context.headers
         user_agent = headers.get("User-Agent", "Unknown Device")
-        browser_lang = headers.get("Accept-Language", "Unknown Lang")
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        current_time = datetime.now().strftime("%H:%M")
         
         with st.spinner('ШІ аналізує документацію...'):
             try:
@@ -93,22 +104,19 @@ if (user_query or search_button) and final_context:
                 st.subheader("Відповідь:")
                 st.success(response.text)
                 
-                # ВИВІД АНАЛІТИКИ В КОНСОЛЬ (Manage App -> Logs)
-                print(f"\n--- [ЗВІТ КОРИСТУВАЧА] ---")
-                print(f"ЧАС: {current_time}")
-                print(f"ПРИСТРІЙ: {user_agent}")
-                print(f"МОВА ТЕЛЕФОНУ: {browser_lang}")
-                print(f"ОБРАНИЙ ФАЙЛ: {selected_option}")
-                print(f"ЗАПИТ: {user_query}")
-                print(f"РЕЖИМ: {answer_mode}")
-                print(f"СТАТУС: SUCCESS ✅")
-                print(f"--------------------------\n")
+                # ЗАПИС ДЛЯ ВАШОЇ ТАБЛИЦІ В SIDEBAR
+                st.session_state.app_stats.append({
+                    "Час": current_time,
+                    "Пристрій": user_agent[:30],
+                    "Файл": selected_option[:20],
+                    "Запит": user_query
+                })
+                
+                # ЛОГ У КОНСОЛЬ
+                print(f"ADMIN | {current_time} | {user_query}")
                 
             except Exception as e:
-                error_msg = str(e)
-                st.error(f"Помилка: {error_msg}")
-                # ЛОГУВАННЯ ПОМИЛКИ
-                print(f"!!! [ПОМИЛКА] ЧАС: {current_time} | ФАЙЛ: {selected_option} | ДЕТАЛІ: {error_msg}")
+                st.error(f"Помилка: {e}")
 
-# --- 9. ПІДПИС РОЗРОБНИКА ---
+# --- 9. ПІДПИС ---
 st.markdown("<br><hr><center><p style='color: gray;'>© 2026 Розробка: ПЧУ-5 Сергій ШИНКАРЕНКО</p></center>", unsafe_allow_html=True)
