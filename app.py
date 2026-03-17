@@ -7,7 +7,7 @@ import pandas as pd
 import time
 from datetime import datetime
 
-# --- 0. ГЛОБАЛЬНА СТАТИСТИКА ---
+# --- 0. ГЛОБАЛЬНА СТАТИСТИКА (СПІЛЬНА ДЛЯ ВСІХ ПРИСТРОЇВ) ---
 @st.cache_resource
 def get_global_stats():
     return []
@@ -20,7 +20,7 @@ if "user_query" not in st.session_state:
 def clear_text():
     st.session_state.user_query = ""
 
-# --- 1. ПІДКЛЮЧЕННЯ ШІ ---
+# --- 1. ПІДКЛЮЧЕННЯ ШІ (РОТАЦІЯ КЛЮЧІВ) ---
 def get_working_model():
     key_names = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
     random.shuffle(key_names)
@@ -37,23 +37,20 @@ def get_working_model():
 
 model = get_working_model()
 
-# --- 2. ІНТЕРФЕЙС ТА СТИЛІЗАЦІЯ ПОВНОЇ ШИРИНИ ---
+# --- 2. ІНТЕРФЕЙС ТА ПРИМУСОВЕ ПРИХОВУВАННЯ ПАНЕЛІ ---
 st.set_page_config(
     page_title="Технічна бібліотека ст. Ворожба", 
     layout="centered",
     initial_sidebar_state="collapsed"
 )
 
-# Посилений CSS для кнопок на всю ширину
+# Посилений CSS для кнопок на всю ширину та хрестика в полі
 st.markdown("""
     <style>
-    /* Активуємо хрестик очищення в полі */
     input::-webkit-search-cancel-button {
         -webkit-appearance: searchfield-cancel-button !important;
         cursor: pointer;
     }
-    
-    /* Примусове розтягування контейнера кнопок */
     div[data-testid="stButton"] button {
         width: 100% !important;
         height: 50px !important;
@@ -62,14 +59,10 @@ st.markdown("""
         font-weight: bold !important;
         border: none !important;
     }
-    
-    /* Колір для Пошуку */
     div[data-testid="stButton"] button[kind="primary"] {
         background-color: #28a745 !important;
         color: white !important;
     }
-    
-    /* Колір для Очищення */
     div[data-testid="stButton"] button[kind="secondary"] {
         background-color: #dc3545 !important;
         color: white !important;
@@ -78,8 +71,10 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 with st.sidebar:
-    st.title("⚙️ Налаштування")
+    # ЗМЕНШЕНИЙ ШРИФТ ЗАГОЛОВКА
+    st.markdown("<h3 style='margin-bottom: 0px;'>⚙️ Налаштування</h3>", unsafe_allow_html=True)
     st.markdown("<p style='color: gray; font-size: 0.8rem; margin-bottom: -15px;'>тільки для адміністратора</p>", unsafe_allow_html=True)
+    
     admin_password = st.text_input("Додати файл інструкції (PDF):", type="password", placeholder="Виберіть файл...")
     
     if admin_password == "30033003": 
@@ -90,25 +85,14 @@ with st.sidebar:
             df_display = df[[c for c in valid_cols if c in df.columns]]
             st.table(df_display[::-1])
             csv = df.to_csv(index=False, sep=';').encode('utf-8-sig')
-            st.download_button(label="📥 Скачати звіт (Excel)", data=csv, file_name="stats.csv")
+            st.download_button(label="📥 Скачати звіт (Excel)", data=csv, file_name=f"pchu5_stats_{datetime.now().strftime('%d_%m')}.csv", mime="text/csv")
             if st.button("🗑️ Очистити історію"):
                 global_stats.clear()
                 st.rerun()
 
 st.subheader("📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5")
 
-# --- 3. ФАЙЛИ ---
-available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
-if not available_files:
-    st.warning("⚠️ PDF не знайдені.")
-    st.stop()
-
-# --- 4. МЕНЮ ---
-st.write("---")
-selected_option = st.selectbox("Оберіть інструкцію:", available_files)
-answer_mode = st.radio("Оберіть тип відповіді:", ["Стисла", "Розгорнута"], index=0, horizontal=True)
-
-# --- 5. ФУНКЦІЯ ЧИТАННЯ PDF ---
+# --- 3. ФУНКЦІЯ ЧИТАННЯ PDF ---
 def extract_text_from_pdf(file_path, max_pages=500):
     text = ""
     try:
@@ -121,6 +105,17 @@ def extract_text_from_pdf(file_path, max_pages=500):
         return text
     except: return ""
 
+# --- 4. ЗБІР ФАЙЛІВ ---
+available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
+if not available_files:
+    st.warning("⚠️ PDF не знайдені.")
+    st.stop()
+
+# --- 5. МЕНЮ ---
+st.write("---")
+selected_option = st.selectbox("Оберіть інструкцію:", available_files)
+answer_mode = st.radio("Оберіть тип відповіді:", ["Стисла", "Розгорнута"], index=0, horizontal=True)
+
 final_context = extract_text_from_pdf(selected_option, max_pages=500)
 final_context = final_context[:250000]
 
@@ -128,15 +123,21 @@ final_context = final_context[:250000]
 st.write("---")
 query_text = st.text_input("Пошук", placeholder="Введіть ваше питання тут...", key="user_query", label_visibility="collapsed")
 
-# Використовуємо use_container_width=True для примусового розтягування
+# Кнопки на всю ширину контейнера
 search_button = st.button("Пошук", type="primary", use_container_width=True)
 clear_button = st.button("Очистити", type="secondary", on_click=clear_text, use_container_width=True)
 
-# --- 7. ЛОГІКА ---
+# --- 7. ЛОГІКА ВІДПОВІДІ ---
 if (search_button) and final_context:
     if not query_text.strip():
         st.warning("Введіть питання.")
     else:
+        headers = st.context.headers
+        ua = headers.get("User-Agent", "Unknown Device")
+        os_info = "Комп'ютер"
+        if "Android" in ua: os_info = "Android"
+        elif "iPhone" in ua or "iPad" in ua: os_info = "iPhone/iPad"
+        
         current_time = datetime.now().strftime("%d.%m %H:%M:%S")
         start_process = time.time()
         
@@ -148,7 +149,6 @@ if (search_button) and final_context:
                 if model:
                     response = model.generate_content(prompt)
                     process_time = int(time.time() - start_process)
-                    
                     st.subheader("Відповідь:")
                     st.success(response.text)
                     
@@ -161,10 +161,10 @@ if (search_button) and final_context:
                         "Статус": "Успішно ✅"
                     })
             except Exception as e:
-                st.error("Помилка запиту. Спробуйте ще раз.")
+                st.error("Помилка запиту. Спробуйте ще раз за хвилину.")
                 global_stats.append({"Дата/Час": current_time, "Запит": query_text, "Статус": "Помилка", "Час (сек)": 0})
             
             if len(global_stats) > 500: global_stats.pop(0)
 
-# --- 8. ПІДПИС ---
+# --- 8. ПІДПИС РОЗРОБНИКА ---
 st.markdown("<br><hr><center><p style='color: gray;'>© 2026 Розробка: ПЧУ-5 Сергій ШИНКАРЕНКО</p></center>", unsafe_allow_html=True)
