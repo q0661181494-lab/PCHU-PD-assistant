@@ -127,7 +127,7 @@ if search_button and final_context:
                     st.error("Ключі API не працюють.")
                 else:
                     response = model.generate_content(prompt)
-                    process_time = round(time.time() - start_process, 2)
+                    process_time = int(time.time() - start_process)
                     st.subheader("Відповідь:")
                     st.success(response.text)
                     
