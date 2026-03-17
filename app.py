@@ -1,3 +1,4 @@
+
 import streamlit as st
 import google.generativeai as genai
 import PyPDF2
@@ -30,7 +31,7 @@ def get_working_model():
                 api_key = st.secrets[name]
                 genai.configure(api_key=api_key)
                 available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
+                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models
                 return genai.GenerativeModel(model_name)
             except: continue 
     return None
@@ -44,35 +45,41 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# CSS для кольорових кнопок та ПРИМУСОВОГО одного рядка на мобільних
+# Оптимізований CSS для кнопок (щоб не вилазили за край екрана)
 st.markdown("""
     <style>
-    /* Зелена кнопка Пошуку */
+    /* Базові налаштування для обох кнопок */
+    div.stButton > button {
+        width: 100% !important;
+        white-space: nowrap !important;
+        padding: 0px 2px !important;
+        font-size: 14px !important; /* Трохи менший шрифт для мобільних */
+        border: none !important;
+    }
+    
+    /* Зелена кнопка */
     div.stButton > button[kind="primary"] {
         background-color: #28a745 !important;
         color: white !important;
-        border: none !important;
-        width: 100% !important;
     }
-    /* Червона кнопка Очистити */
+    
+    /* Червона кнопка */
     div.stButton > button[kind="secondary"] {
         background-color: #dc3545 !important;
         color: white !important;
-        border: none !important;
-        width: 100% !important;
     }
     
-    /* ФІКСАЦІЯ ОДНОГО РЯДКА ДЛЯ МОБІЛЬНИХ (Android/iOS) */
+    /* ТРИМАЄМО КНОПКИ В ОДИН РЯД БЕЗ ВИХОДУ ЗА МЕЖІ */
     [data-testid="stHorizontalBlock"] {
         display: flex !important;
         flex-direction: row !important;
         flex-wrap: nowrap !important;
-        align-items: center !important;
-        gap: 10px !important;
+        width: 100% !important;
+        gap: 5px !important; /* Мінімальна відстань між кнопками */
     }
     [data-testid="column"] {
         flex: 1 1 50% !important;
-        min-width: 0 !important;
+        min-width: 0 !important; /* Дозволяє кнопкам стискатися під екран */
     }
     </style>
     """, unsafe_allow_html=True)
