@@ -1,4 +1,3 @@
-
 import streamlit as st
 import google.generativeai as genai
 import PyPDF2
@@ -38,48 +37,56 @@ def get_working_model():
 
 model = get_working_model()
 
-# --- 2. ІНТЕРФЕЙС ТА ФІКСАЦІЯ МОБІЛЬНОЇ ВЕРСІЇ ---
+# --- 2. ІНТЕРФЕЙС ТА ЕКСТРЕМАЛЬНА ФІКСАЦІЯ КНОПОК ---
 st.set_page_config(
     page_title="Технічна бібліотека ст. Ворожба", 
     layout="centered",
     initial_sidebar_state="collapsed"
 )
 
-# Оптимізований CSS для кнопок (щоб не вилазили за край екрана)
+# Потужний CSS для стискання кнопок під будь-який екран
 st.markdown("""
     <style>
-    /* Базові налаштування для обох кнопок */
-    div.stButton > button {
-        width: 100% !important;
-        white-space: nowrap !important;
-        padding: 0px 2px !important;
-        font-size: 14px !important; /* Трохи менший шрифт для мобільних */
-        border: none !important;
-    }
-    
-    /* Зелена кнопка */
-    div.stButton > button[kind="primary"] {
-        background-color: #28a745 !important;
-        color: white !important;
-    }
-    
-    /* Червона кнопка */
-    div.stButton > button[kind="secondary"] {
-        background-color: #dc3545 !important;
-        color: white !important;
-    }
-    
-    /* ТРИМАЄМО КНОПКИ В ОДИН РЯД БЕЗ ВИХОДУ ЗА МЕЖІ */
+    /* Стискаємо контейнер колонок */
     [data-testid="stHorizontalBlock"] {
         display: flex !important;
         flex-direction: row !important;
         flex-wrap: nowrap !important;
         width: 100% !important;
-        gap: 5px !important; /* Мінімальна відстань між кнопками */
+        gap: 4px !important;
+        padding: 0 !important;
     }
+    
+    /* Стискаємо самі колонки */
     [data-testid="column"] {
         flex: 1 1 50% !important;
-        min-width: 0 !important; /* Дозволяє кнопкам стискатися під екран */
+        min-width: 0 !important;
+        max-width: 50% !important;
+        padding: 0 !important;
+    }
+
+    /* Налаштування самих кнопок */
+    div.stButton > button {
+        width: 100% !important;
+        min-width: 0 !important;
+        padding: 4px 2px !important;
+        font-size: 13px !important; /* Ще менший шрифт */
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important; /* Якщо текст не влазить, він обріжеться крапками */
+        height: 40px !important;
+    }
+
+    div.stButton > button[kind="primary"] {
+        background-color: #28a745 !important;
+        color: white !important;
+        border: none !important;
+    }
+    
+    div.stButton > button[kind="secondary"] {
+        background-color: #dc3545 !important;
+        color: white !important;
+        border: none !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -97,14 +104,14 @@ with st.sidebar:
             df_display = df[[c for c in valid_cols if c in df.columns]]
             st.table(df_display[::-1])
             csv = df.to_csv(index=False, sep=';').encode('utf-8-sig')
-            st.download_button(label="📥 Скачати звіт (Excel)", data=csv, file_name="stats.csv", mime="text/csv")
-            if st.button("🗑️ Очистити історію"):
+            st.download_button(label="📥 Скачати звіт", data=csv, file_name="stats.csv")
+            if st.button("🗑️ Очистити"):
                 global_stats.clear()
                 st.rerun()
 
 st.subheader("📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5")
 
-# --- 3. ФУНКЦІЇ ---
+# --- 3. ФУНКЦІЇ ТА ФАЙЛИ ---
 def extract_text_from_pdf(file_path, max_pages=500):
     text = ""
     try:
@@ -134,12 +141,13 @@ final_context = final_context[:250000]
 st.write("---")
 query_text = st.text_input("Пошук", placeholder="Введіть питання...", key="user_query", label_visibility="collapsed")
 
-# Колонки для кнопок (завжди в один ряд)
+# Ряд кнопок
 col1, col2 = st.columns(2)
 with col1:
     search_button = st.button("🔍 Пошук", type="primary")
 with col2:
-    st.button("🗑️ Очистити", type="secondary", on_click=clear_text)
+    # Замінено "🗑️ Очистити" на коротше "🗑️ Скинути", щоб точно влізло
+    st.button("🗑️ Скинути", type="secondary", on_click=clear_text)
 
 # --- 6. ЛОГІКА ---
 if search_button and final_context:
@@ -158,7 +166,6 @@ if search_button and final_context:
                     st.error("Ключі API не працюють.")
                 else:
                     response = model.generate_content(prompt)
-                    # Час у повних секундах
                     process_time = int(time.time() - start_process)
                     
                     st.subheader("Відповідь:")
