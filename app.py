@@ -3,12 +3,14 @@ import google.generativeai as genai
 import PyPDF2
 import os
 import random
+import pandas as pd
+import requests
+import time
 from datetime import datetime
 
-# --- 0. СПІЛЬНА ПАМ'ЯТЬ ДЛЯ ВСІХ КОРИСТУВАЧІВ (ГЛОБАЛЬНА СТАТИСТИКА) ---
+# --- 0. ГЛОБАЛЬНА СТАТИСТИКА (СПІЛЬНА ДЛЯ ВСІХ ПРИСТРОЇВ) ---
 @st.cache_resource
 def get_global_stats():
-    # Цей список зберігається на сервері та доступний всім пристроям одночасно
     return []
 
 global_stats = get_global_stats()
@@ -22,13 +24,10 @@ def get_working_model():
             try:
                 api_key = st.secrets[name]
                 genai.configure(api_key=api_key)
-                
                 available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
                 model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
-                
                 return genai.GenerativeModel(model_name)
-            except Exception:
-                continue 
+            except: continue 
     return None
 
 model = get_working_model()
@@ -37,32 +36,32 @@ model = get_working_model()
 st.set_page_config(page_title="Технічна бібліотека ст. Ворожба", layout="centered")
 
 with st.sidebar:
-    st.title("📂 Керування")
-    
-    # Сіра помітка над полем пароля
+    # ЗМІНЕНО: Напис "Керування" на "Налаштування" та оновлено іконку
+    st.title("⚙️ Налаштування")
     st.markdown("<p style='color: gray; font-size: 0.8rem; margin-bottom: -15px;'>тільки для адміністратора</p>", unsafe_allow_html=True)
-    
-    # Поле пароля, замасковане під завантаження файлу
     admin_password = st.text_input("Додати файл інструкції (PDF):", type="password", placeholder="Виберіть файл...")
     
-    # ПЕРЕВІРКА ПАРОЛЯ (30033003)
     if admin_password == "30033003": 
-        st.success("Доступ до спільної статистики відкрито")
-        st.subheader("📊 Запити з усіх пристроїв")
+        st.success("Доступ до повної аналітики відкрито")
         if global_stats:
-            # Вивід таблиці (свіжі запити зверху)
-            st.table(global_stats[::-1])
-            if st.button("🗑️ Очистити історію для всіх"):
+            df = pd.DataFrame(global_stats)
+            st.subheader("📊 Детальна статистика")
+            st.table(df[::-1]) # Останні запити зверху
+            
+            csv = df.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label="📥 Скачати повний звіт (Excel)",
+                data=csv,
+                file_name=f"pchu5_analytics_{datetime.now().strftime('%d_%m_%H%M')}.csv",
+                mime="text/csv",
+            )
+            if st.button("🗑️ Очистити всю історію"):
                 global_stats.clear()
                 st.rerun()
         else:
             st.info("Запитів поки не зафіксовано.")
 
 st.subheader("📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5")
-
-if not model:
-    st.error("❌ Не вдалося підключитися до ШІ. Перевірте ключі в Secrets.")
-    st.stop()
 
 # --- 3. ФУНКЦІЯ ЧИТАННЯ PDF ---
 def extract_text_from_pdf(file_path, max_pages=500):
@@ -83,12 +82,12 @@ if not available_files:
     st.warning("⚠️ Файли .pdf не знайдені.")
     st.stop()
 
-# --- 5. НАЛАШТУВАННЯ ПОШУКУ ---
+# --- 5. МЕНЮ ---
 st.write("---")
 selected_option = st.selectbox("Оберіть інструкцію:", available_files)
 answer_mode = st.radio("Оберіть тип відповіді:", ["Стисла (головні тези)", "Розгорнута (детально)"], index=0, horizontal=True)
 
-# --- 6. ПІДГОТОВКА ТЕКСТУ (ОПТИМІЗОВАНО) ---
+# --- 6. ПІДГОТОВКА ТЕКСТУ ---
 final_context = extract_text_from_pdf(selected_option, max_pages=500)
 final_context = final_context[:250000]
 
@@ -100,15 +99,31 @@ with col1:
 with col2:
     search_button = st.button("🔍 Пошук")
 
-# --- 8. ЛОГІКА ВІДПОВІДІ ТА ЗАПИС СТАТИСТИКИ ---
+# --- 8. ЛОГІКА ВІДПОВІДІ ТА МАКСИМАЛЬНА АНАЛІТИКА ---
 if (user_query or search_button) and final_context:
     if not user_query.strip():
         st.warning("Введіть питання.")
     else:
-        # Збір технічних даних
+        # Збір гео-даних та провайдера
+        city, region, provider = "Unknown", "Unknown", "Unknown"
+        try:
+            geo = requests.get('http://ip-api.com', timeout=1.5).json()
+            city = geo.get('city', 'Unknown')
+            region = geo.get('regionName', 'Unknown')
+            provider = geo.get('isp', 'Unknown')
+        except: pass
+
+        # Збір даних пристрою
         headers = st.context.headers
-        user_agent = headers.get("User-Agent", "Unknown Device")
-        current_time = datetime.now().strftime("%d.%m %H:%M")
+        ua = headers.get("User-Agent", "Unknown Device")
+        
+        os_info = "Other"
+        if "Android" in ua: os_info = "Android"
+        elif "iPhone" in ua or "iPad" in ua: os_info = "iOS"
+        elif "Windows" in ua: os_info = "Windows"
+        
+        current_time = datetime.now().strftime("%d.%m %H:%M:%S")
+        start_process = time.time()
         
         with st.spinner('ШІ аналізує документацію...'):
             try:
@@ -116,27 +131,41 @@ if (user_query or search_button) and final_context:
                 prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nІнструкція: {style}. Відповідай українською."
                 
                 response = model.generate_content(prompt)
+                process_time = round(time.time() - start_process, 2)
+                
                 st.subheader("Відповідь:")
                 st.success(response.text)
                 
-                # ЗАПИС У СПІЛЬНУ ТАБЛИЦЮ (Sidebar)
+                # Запис МАКСИМАЛЬНОЇ статистики у спільну пам'ять
                 global_stats.append({
-                    "Час": current_time,
-                    "Пристрій": user_agent[:25],
-                    "Файл": selected_option[:15],
-                    "Запит": user_query
+                    "Дата/Час": current_time,
+                    "Місто": city,
+                    "Область": region,
+                    "Провайдер": provider,
+                    "ОС": os_info,
+                    "Запит": user_query,
+                    "Файл": selected_option[:20],
+                    "Режим": answer_mode[:10],
+                    "Час (сек)": process_time,
+                    "Статус": "Успішно ✅"
                 })
                 
-                # Обмеження списку (останні 100 запитів), щоб не перевантажувати сервер
-                if len(global_stats) > 100:
-                    global_stats.pop(0)
-                
-                # Також дублюємо в стандартні Logs для надійності
-                print(f"GLOBAL LOG | {current_time} | {user_query}")
-                
             except Exception as e:
-                st.error(f"Вибачте, виникла помилка. Спробуйте ще раз за хвилину.")
-                print(f"ERROR | {current_time} | {str(e)}")
+                process_time = round(time.time() - start_process, 2)
+                st.error(f"Помилка ШІ. Спробуйте ще раз.")
+                global_stats.append({
+                    "Дата/Час": current_time,
+                    "Місто": city,
+                    "Область": region,
+                    "Провайдер": provider,
+                    "ОС": os_info,
+                    "Запит": user_query,
+                    "Файл": selected_option[:20],
+                    "Час (сек)": process_time,
+                    "Статус": f"Помилка: {str(e)[:40]}"
+                })
+            
+            if len(global_stats) > 500: global_stats.pop(0)
 
 # --- 9. ПІДПИС РОЗРОБНИКА ---
 st.markdown("<br><hr><center><p style='color: gray;'>© 2026 Розробка: ПЧУ-5 Сергій ШИНКАРЕНКО</p></center>", unsafe_allow_html=True)
