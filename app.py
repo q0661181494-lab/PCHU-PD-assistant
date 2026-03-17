@@ -5,9 +5,13 @@ import os
 import random
 from datetime import datetime
 
-# --- 0. ІНІЦІАЛІЗАЦІЯ ПАМ'ЯТІ ---
-if "app_stats" not in st.session_state:
-    st.session_state.app_stats = []
+# --- 0. СПІЛЬНА ПАМ'ЯТЬ ДЛЯ ВСІХ КОРИСТУВАЧІВ ---
+@st.cache_resource
+def get_global_stats():
+    # Цей список буде один на весь сервер для всіх пристроїв
+    return []
+
+global_stats = get_global_stats()
 
 # --- 1. ПІДКЛЮЧЕННЯ ШІ ---
 def get_working_model():
@@ -34,21 +38,18 @@ with st.sidebar:
     admin_password = st.text_input("Додати файл інструкції (PDF):", type="password", placeholder="Виберіть файл...")
     
     if admin_password == "30033003": 
-        st.success("Доступ до статистики відкрито")
-        st.subheader("📊 Останні запити")
-        if st.session_state.app_stats:
-            st.table(st.session_state.app_stats[::-1])
-            if st.button("🗑️ Очистити"):
-                st.session_state.app_stats = []
+        st.success("Доступ до спільної статистики відкрито")
+        st.subheader("📊 Запити з усіх пристроїв")
+        if global_stats:
+            # Вивід таблиці (останні запити зверху)
+            st.table(global_stats[::-1])
+            if st.button("🗑️ Очистити для всіх"):
+                global_stats.clear()
                 st.rerun()
         else:
             st.info("Запитів ще не було.")
 
 st.subheader("📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5")
-
-if not model:
-    st.error("❌ Помилка підключення до ШІ.")
-    st.stop()
 
 # --- 3. ФУНКЦІЯ ЧИТАННЯ PDF ---
 def extract_text_from_pdf(file_path, max_pages=500):
@@ -86,14 +87,14 @@ with col1:
 with col2:
     search_button = st.button("🔍 Пошук")
 
-# --- 8. ЛОГІКА ВІДПОВІДІ ТА ЗАПИС СТАТИСТИКИ ---
+# --- 8. ЛОГІКА ВІДПОВІДІ ТА ЗАПИС У СПІЛЬНУ БАЗУ ---
 if (user_query or search_button) and final_context:
     if not user_query.strip():
         st.warning("Введіть питання.")
     else:
         headers = st.context.headers
         user_agent = headers.get("User-Agent", "Unknown Device")
-        current_time = datetime.now().strftime("%H:%M")
+        current_time = datetime.now().strftime("%d.%m %H:%M")
         
         with st.spinner('ШІ аналізує документацію...'):
             try:
@@ -104,16 +105,17 @@ if (user_query or search_button) and final_context:
                 st.subheader("Відповідь:")
                 st.success(response.text)
                 
-                # ЗАПИС ДЛЯ ВАШОЇ ТАБЛИЦІ В SIDEBAR
-                st.session_state.app_stats.append({
+                # ЗАПИС У СПІЛЬНИЙ СПИСОК (бачать всі адміни)
+                global_stats.append({
                     "Час": current_time,
-                    "Пристрій": user_agent[:30],
-                    "Файл": selected_option[:20],
+                    "Пристрій": user_agent[:25],
+                    "Файл": selected_option[:15],
                     "Запит": user_query
                 })
                 
-                # ЛОГ У КОНСОЛЬ
-                print(f"ADMIN | {current_time} | {user_query}")
+                # Обмежуємо список, щоб не перевантажувати пам'ять (останні 100 запитів)
+                if len(global_stats) > 100:
+                    global_stats.pop(0)
                 
             except Exception as e:
                 st.error(f"Помилка: {e}")
