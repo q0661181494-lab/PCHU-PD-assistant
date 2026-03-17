@@ -14,6 +14,7 @@ def get_global_stats():
 
 global_stats = get_global_stats()
 
+# Стан поля пошуку
 if "user_query" not in st.session_state:
     st.session_state.user_query = ""
 
@@ -30,21 +31,22 @@ def get_working_model():
                 api_key = st.secrets[name]
                 genai.configure(api_key=api_key)
                 available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models
+                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
                 return genai.GenerativeModel(model_name)
-            except: continue 
+            except:
+                continue 
     return None
 
 model = get_working_model()
 
-# --- 2. ІНТЕРФЕЙС ТА ПРИМУСОВЕ ПРИХОВУВАННЯ ПАНЕЛІ ---
+# --- 2. ІНТЕРФЕЙС ТА СТИЛІЗАЦІЯ ---
 st.set_page_config(
     page_title="Технічна бібліотека ст. Ворожба", 
     layout="centered",
     initial_sidebar_state="collapsed"
 )
 
-# CSS для великих кольорових кнопок та хрестика
+# CSS для великих кнопок, хрестика та мобільної версії
 st.markdown("""
     <style>
     input::-webkit-search-cancel-button { -webkit-appearance: searchfield-cancel-button !important; cursor: pointer; }
@@ -77,7 +79,7 @@ with st.sidebar:
 
 st.subheader("📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5")
 
-# --- 3. ФУНКЦІЯ ЧИТАННЯ PDF ---
+# --- 3. ЧИТАННЯ PDF ---
 def extract_text_from_pdf(file_path, max_pages=500):
     text = ""
     try:
@@ -115,22 +117,23 @@ if search_button and final_context:
     if not query_text.strip():
         st.warning("Введіть питання.")
     else:
-        # Автоматичний перехід на літній час (спрощено та надійно)
-        now = datetime.utcnow()
-        # Березень-Жовтень = +3 години (літній), решта = +2 (зимовий)
-        offset = 3 if (3 <= now.month <= 10) else 2
-        current_time = (now + timedelta(hours=offset)).strftime("%d.%m %H:%M:%S")
+        # Автоматичний розрахунок київського часу (UTC+2/UTC+3)
+        now_utc = datetime.utcnow()
+        # Спрощена логіка літнього часу (березень-жовтень)
+        ukraine_offset = 3 if (3 <= now_utc.month <= 10) else 2
+        current_time = (now_utc + timedelta(hours=ukraine_offset)).strftime("%d.%m %H:%M:%S")
         
         start_process = time.time()
         
         with st.spinner('ШІ аналізує документацію...'):
             try:
-                style = "тези" if answer_mode == "Стисла" else "детально"
+                style = "тези" if answer_mode == "Стисла" else "детально з пунктами правил"
                 prompt = f"Контекст: {final_context}\n\nПитання: {query_text}\n\nІнструкція: {style}. Відповідай українською."
                 
                 if model:
                     response = model.generate_content(prompt)
                     process_time = int(time.time() - start_process)
+                    
                     st.subheader("Відповідь:")
                     st.success(response.text)
                     
@@ -142,8 +145,10 @@ if search_button and final_context:
                         "Час (сек)": process_time,
                         "Статус": "Успішно ✅"
                     })
+                else:
+                    st.error("Помилка підключення до ШІ. Перевірте ключі API.")
             except Exception as e:
-                st.error("Помилка запиту. Спробуйте ще раз за хвилину.")
+                st.error(f"Помилка запиту. Спробуйте ще раз за хвилину.")
                 global_stats.append({"Дата/Час": current_time, "Запит": query_text, "Статус": "Помилка", "Час (сек)": 0})
             
             if len(global_stats) > 500: global_stats.pop(0)
