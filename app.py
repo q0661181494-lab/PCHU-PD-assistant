@@ -5,8 +5,7 @@ import os
 import random
 import pandas as pd
 import time
-from datetime import datetime
-from zoneinfo import ZoneInfo # Вбудована бібліотека для часових поясів
+from datetime import datetime, timedelta
 
 # --- 0. ГЛОБАЛЬНА СТАТИСТИКА (СПІЛЬНА ПАМ'ЯТЬ) ---
 @st.cache_resource
@@ -38,14 +37,14 @@ def get_working_model():
 
 model = get_working_model()
 
-# --- 2. ІНТЕРФЕЙС ТА ПРИХОВУВАННЯ ПАНЕЛІ ---
+# --- 2. ІНТЕРФЕЙС ТА ПРИМУСОВЕ ПРИХОВУВАННЯ ПАНЕЛІ ---
 st.set_page_config(
     page_title="Технічна бібліотека ст. Ворожба", 
     layout="centered",
     initial_sidebar_state="collapsed"
 )
 
-# CSS для кнопок та хрестика
+# CSS для великих кольорових кнопок та хрестика
 st.markdown("""
     <style>
     input::-webkit-search-cancel-button { -webkit-appearance: searchfield-cancel-button !important; cursor: pointer; }
@@ -71,14 +70,14 @@ with st.sidebar:
             df_display = df[[c for c in valid_cols if c in df.columns]]
             st.table(df_display[::-1])
             csv = df.to_csv(index=False, sep=';').encode('utf-8-sig')
-            st.download_button(label="📥 Скачати звіт (Excel)", data=csv, file_name=f"stats_pchu5.csv", mime="text/csv")
+            st.download_button(label="📥 Скачати звіт (Excel)", data=csv, file_name="stats_pchu5.csv", mime="text/csv")
             if st.button("🗑️ Очистити історію"):
                 global_stats.clear()
                 st.rerun()
 
 st.subheader("📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5")
 
-# --- 3. ЧИТАННЯ PDF ---
+# --- 3. ФУНКЦІЯ ЧИТАННЯ PDF ---
 def extract_text_from_pdf(file_path, max_pages=500):
     text = ""
     try:
@@ -112,12 +111,16 @@ search_button = st.button("Пошук", type="primary", use_container_width=True
 clear_button = st.button("Очистити", type="secondary", on_click=clear_text, use_container_width=True)
 
 # --- 6. ЛОГІКА ВІДПОВІДІ ---
-if (search_button) and final_context:
+if search_button and final_context:
     if not query_text.strip():
         st.warning("Введіть питання.")
     else:
-        # АВТОМАТИЧНИЙ ЧАС УКРАЇНИ (Київ)
-        current_time = datetime.now(ZoneInfo("Europe/Kiev")).strftime("%d.%m %H:%M:%S")
+        # Автоматичний перехід на літній час (спрощено та надійно)
+        now = datetime.utcnow()
+        # Березень-Жовтень = +3 години (літній), решта = +2 (зимовий)
+        offset = 3 if (3 <= now.month <= 10) else 2
+        current_time = (now + timedelta(hours=offset)).strftime("%d.%m %H:%M:%S")
+        
         start_process = time.time()
         
         with st.spinner('ШІ аналізує документацію...'):
