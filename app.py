@@ -4,16 +4,22 @@ import PyPDF2
 import os
 import random
 import pandas as pd
-import requests
 import time
 from datetime import datetime
 
-# --- 0. ГЛОБАЛЬНА СТАТИСТИКА (СПІЛЬНА ДЛЯ ВСІХ ПРИСТРОЇВ) ---
+# --- 0. ГЛОБАЛЬНА СТАТИСТИКА ТА СТАН ПОЛЯ ---
 @st.cache_resource
 def get_global_stats():
     return []
 
 global_stats = get_global_stats()
+
+# Ініціалізація стану текстового поля
+if "user_query" not in st.session_state:
+    st.session_state.user_query = ""
+
+def clear_text():
+    st.session_state.user_query = ""
 
 # --- 1. ПІДКЛЮЧЕННЯ ШІ (РОТАЦІЯ КЛЮЧІВ) ---
 def get_working_model():
@@ -25,37 +31,34 @@ def get_working_model():
                 api_key = st.secrets[name]
                 genai.configure(api_key=api_key)
                 available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
+                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models
                 return genai.GenerativeModel(model_name)
             except: continue 
     return None
 
 model = get_working_model()
 
-# --- 2. ІНТЕРФЕЙС ТА СЕКРЕТНИЙ SIDEBAR ---
-st.set_page_config(page_title="Технічна бібліотека ст. Ворожба", layout="centered")
+# --- 2. ІНТЕРФЕЙС ---
+st.set_page_config(
+    page_title="Технічна бібліотека ст. Ворожба", 
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
 
 with st.sidebar:
-    # ЗМІНЕНО: Напис "Керування" на "Налаштування" та оновлено іконку
     st.title("⚙️ Налаштування")
     st.markdown("<p style='color: gray; font-size: 0.8rem; margin-bottom: -15px;'>тільки для адміністратора</p>", unsafe_allow_html=True)
     admin_password = st.text_input("Додати файл інструкції (PDF):", type="password", placeholder="Виберіть файл...")
     
     if admin_password == "30033003": 
-        st.success("Доступ до повної аналітики відкрито")
+        st.success("Доступ до аналітики відкрито")
         if global_stats:
             df = pd.DataFrame(global_stats)
-            st.subheader("📊 Детальна статистика")
-            st.table(df[::-1]) # Останні запити зверху
-            
-            csv = df.to_csv(index=False).encode('utf-8-sig')
-            st.download_button(
-                label="📥 Скачати повний звіт (Excel)",
-                data=csv,
-                file_name=f"pchu5_analytics_{datetime.now().strftime('%d_%m_%H%M')}.csv",
-                mime="text/csv",
-            )
-            if st.button("🗑️ Очистити всю історію"):
+            st.subheader("📊 Статистика запитів")
+            st.table(df[::-1])
+            csv = df.to_csv(index=False, sep=';').encode('utf-8-sig')
+            st.download_button(label="📥 Скачати звіт (Excel)", data=csv, file_name=f"pchu5_stats_{datetime.now().strftime('%d_%m_%H%M')}.csv", mime="text/csv")
+            if st.button("🗑️ Очистити історію"):
                 global_stats.clear()
                 st.rerun()
         else:
@@ -91,36 +94,27 @@ answer_mode = st.radio("Оберіть тип відповіді:", ["Стисл
 final_context = extract_text_from_pdf(selected_option, max_pages=500)
 final_context = final_context[:250000]
 
-# --- 7. ПОШУК З ЛУПОЮ ---
+# --- 7. ПОШУК ТА ОЧИЩЕННЯ ---
 st.write("---")
-col1, col2 = st.columns([0.85, 0.15])
-with col1:
-    user_query = st.text_input("Пошук", placeholder="Напишіть ваше питання або Білет N...", label_visibility="collapsed")
-with col2:
-    search_button = st.button("🔍 Пошук")
+# Поле введення, прив'язане до session_state
+query_text = st.text_input("Пошук", placeholder="Напишіть ваше питання або Білет N...", key="user_query", label_visibility="collapsed")
 
-# --- 8. ЛОГІКА ВІДПОВІДІ ТА МАКСИМАЛЬНА АНАЛІТИКА ---
-if (user_query or search_button) and final_context:
-    if not user_query.strip():
+col1, col2, _ = st.columns([0.2, 0.2, 0.6])
+with col1:
+    search_button = st.button("🔍 Пошук", type="primary")
+with col2:
+    st.button("🗑️ Очистити", on_click=clear_text)
+
+# --- 8. ЛОГІКА ВІДПОВІДІ ---
+if (search_button) and final_context:
+    if not query_text.strip():
         st.warning("Введіть питання.")
     else:
-        # Збір гео-даних та провайдера
-        city, region, provider = "Unknown", "Unknown", "Unknown"
-        try:
-            geo = requests.get('http://ip-api.com', timeout=1.5).json()
-            city = geo.get('city', 'Unknown')
-            region = geo.get('regionName', 'Unknown')
-            provider = geo.get('isp', 'Unknown')
-        except: pass
-
-        # Збір даних пристрою
         headers = st.context.headers
         ua = headers.get("User-Agent", "Unknown Device")
-        
-        os_info = "Other"
+        os_info = "Комп'ютер"
         if "Android" in ua: os_info = "Android"
-        elif "iPhone" in ua or "iPad" in ua: os_info = "iOS"
-        elif "Windows" in ua: os_info = "Windows"
+        elif "iPhone" in ua or "iPad" in ua: os_info = "iPhone/iPad"
         
         current_time = datetime.now().strftime("%d.%m %H:%M:%S")
         start_process = time.time()
@@ -128,7 +122,7 @@ if (user_query or search_button) and final_context:
         with st.spinner('ШІ аналізує документацію...'):
             try:
                 style = "тези" if answer_mode == "Стисла (головні тези)" else "детально з пунктами правил"
-                prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nІнструкція: {style}. Відповідай українською."
+                prompt = f"Контекст: {final_context}\n\nПитання: {query_text}\n\nІнструкція: {style}. Відповідай українською."
                 
                 response = model.generate_content(prompt)
                 process_time = round(time.time() - start_process, 2)
@@ -136,33 +130,21 @@ if (user_query or search_button) and final_context:
                 st.subheader("Відповідь:")
                 st.success(response.text)
                 
-                # Запис МАКСИМАЛЬНОЇ статистики у спільну пам'ять
                 global_stats.append({
                     "Дата/Час": current_time,
-                    "Місто": city,
-                    "Область": region,
-                    "Провайдер": provider,
-                    "ОС": os_info,
-                    "Запит": user_query,
-                    "Файл": selected_option[:20],
-                    "Режим": answer_mode[:10],
+                    "Пристрій": os_info,
+                    "Запит": query_text,
+                    "Файл": selected_option[:25],
+                    "Режим": "Стисла" if answer_mode == "Стисла (головні тези)" else "Розгорнута",
                     "Час (сек)": process_time,
                     "Статус": "Успішно ✅"
                 })
                 
             except Exception as e:
-                process_time = round(time.time() - start_process, 2)
                 st.error(f"Помилка ШІ. Спробуйте ще раз.")
                 global_stats.append({
-                    "Дата/Час": current_time,
-                    "Місто": city,
-                    "Область": region,
-                    "Провайдер": provider,
-                    "ОС": os_info,
-                    "Запит": user_query,
-                    "Файл": selected_option[:20],
-                    "Час (сек)": process_time,
-                    "Статус": f"Помилка: {str(e)[:40]}"
+                    "Дата/Час": current_time, "Пристрій": os_info, "Запит": query_text, 
+                    "Файл": selected_option[:25], "Час (сек)": 0, "Статус": f"Помилка: {str(e)[:40]}"
                 })
             
             if len(global_stats) > 500: global_stats.pop(0)
