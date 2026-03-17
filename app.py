@@ -37,29 +37,38 @@ def get_working_model():
 
 model = get_working_model()
 
-# --- 2. ІНТЕРФЕЙС ТА СТИЛІЗАЦІЯ ---
+# --- 2. ІНТЕРФЕЙС ТА СТИЛІЗАЦІЯ ЦЕНТРУВАННЯ ---
 st.set_page_config(
     page_title="Технічна бібліотека ст. Ворожба", 
     layout="centered",
     initial_sidebar_state="collapsed"
 )
 
-# CSS для вертикальних кольорових кнопок на всю ширину
+# CSS для однакових кнопок по центру
 st.markdown("""
     <style>
-    /* Робимо всі кнопки в блоці на всю ширину */
-    div.stButton > button {
-        width: 100% !important;
-        margin-bottom: 10px !important;
-        height: 45px !important;
-        border: none !important;
+    /* Центрування блоку з кнопками */
+    .stButton {
+        display: flex;
+        justify-content: center;
     }
-    /* Зелений Пошук */
+    
+    /* Налаштування розміру та вигляду кнопок */
+    div.stButton > button {
+        width: 200px !important; /* Однакова ширина для обох кнопок */
+        height: 45px !important;
+        margin: 5px auto !important;
+        border: none !important;
+        display: block !important;
+    }
+    
+    /* Зелений Пошук (Primary) */
     div.stButton > button[kind="primary"] {
         background-color: #28a745 !important;
         color: white !important;
     }
-    /* Червона Очистка */
+    
+    /* Червона Очистка (Secondary) */
     div.stButton > button[kind="secondary"] {
         background-color: #dc3545 !important;
         color: white !important;
@@ -113,13 +122,13 @@ answer_mode = st.radio("Оберіть тип відповіді:", ["Стисл
 final_context = extract_text_from_pdf(selected_option, max_pages=500)
 final_context = final_context[:250000]
 
-# --- 5. ПОШУК ТА КНОПКИ (ВЕРТИКАЛЬНО) ---
+# --- 5. ПОШУК ТА КНОПКИ ---
 st.write("---")
 query_text = st.text_input("Пошук", placeholder="Введіть ваше питання тут...", key="user_query", label_visibility="collapsed")
 
-# Кнопки йдуть одна за одною (одна під одною)
-search_button = st.button("🔍 Почати пошук", type="primary")
-clear_button = st.button("🗑️ Очистити поле пошуку", type="secondary", on_click=clear_text)
+# Кнопки по центру одна під одною
+search_button = st.button("Пошук", type="primary")
+clear_button = st.button("Очистити", type="secondary", on_click=clear_text)
 
 # --- 6. ЛОГІКА ---
 if search_button and final_context:
