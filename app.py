@@ -37,56 +37,32 @@ def get_working_model():
 
 model = get_working_model()
 
-# --- 2. ІНТЕРФЕЙС ТА ЕКСТРЕМАЛЬНА ФІКСАЦІЯ КНОПОК ---
+# --- 2. ІНТЕРФЕЙС ТА СТИЛІЗАЦІЯ ---
 st.set_page_config(
     page_title="Технічна бібліотека ст. Ворожба", 
     layout="centered",
     initial_sidebar_state="collapsed"
 )
 
-# Потужний CSS для стискання кнопок під будь-який екран
+# CSS для вертикальних кольорових кнопок на всю ширину
 st.markdown("""
     <style>
-    /* Стискаємо контейнер колонок */
-    [data-testid="stHorizontalBlock"] {
-        display: flex !important;
-        flex-direction: row !important;
-        flex-wrap: nowrap !important;
-        width: 100% !important;
-        gap: 4px !important;
-        padding: 0 !important;
-    }
-    
-    /* Стискаємо самі колонки */
-    [data-testid="column"] {
-        flex: 1 1 50% !important;
-        min-width: 0 !important;
-        max-width: 50% !important;
-        padding: 0 !important;
-    }
-
-    /* Налаштування самих кнопок */
+    /* Робимо всі кнопки в блоці на всю ширину */
     div.stButton > button {
         width: 100% !important;
-        min-width: 0 !important;
-        padding: 4px 2px !important;
-        font-size: 13px !important; /* Ще менший шрифт */
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important; /* Якщо текст не влазить, він обріжеться крапками */
-        height: 40px !important;
+        margin-bottom: 10px !important;
+        height: 45px !important;
+        border: none !important;
     }
-
+    /* Зелений Пошук */
     div.stButton > button[kind="primary"] {
         background-color: #28a745 !important;
         color: white !important;
-        border: none !important;
     }
-    
+    /* Червона Очистка */
     div.stButton > button[kind="secondary"] {
         background-color: #dc3545 !important;
         color: white !important;
-        border: none !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -104,14 +80,14 @@ with st.sidebar:
             df_display = df[[c for c in valid_cols if c in df.columns]]
             st.table(df_display[::-1])
             csv = df.to_csv(index=False, sep=';').encode('utf-8-sig')
-            st.download_button(label="📥 Скачати звіт", data=csv, file_name="stats.csv")
-            if st.button("🗑️ Очистити"):
+            st.download_button(label="📥 Скачати звіт (Excel)", data=csv, file_name="stats.csv")
+            if st.button("🗑️ Очистити історію"):
                 global_stats.clear()
                 st.rerun()
 
 st.subheader("📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5")
 
-# --- 3. ФУНКЦІЇ ТА ФАЙЛИ ---
+# --- 3. ФУНКЦІЇ ---
 def extract_text_from_pdf(file_path, max_pages=500):
     text = ""
     try:
@@ -137,17 +113,13 @@ answer_mode = st.radio("Оберіть тип відповіді:", ["Стисл
 final_context = extract_text_from_pdf(selected_option, max_pages=500)
 final_context = final_context[:250000]
 
-# --- 5. ПОШУК ТА КНОПКИ ---
+# --- 5. ПОШУК ТА КНОПКИ (ВЕРТИКАЛЬНО) ---
 st.write("---")
-query_text = st.text_input("Пошук", placeholder="Введіть питання...", key="user_query", label_visibility="collapsed")
+query_text = st.text_input("Пошук", placeholder="Введіть ваше питання тут...", key="user_query", label_visibility="collapsed")
 
-# Ряд кнопок
-col1, col2 = st.columns(2)
-with col1:
-    search_button = st.button("🔍 Пошук", type="primary")
-with col2:
-    # Замінено "🗑️ Очистити" на коротше "🗑️ Скинути", щоб точно влізло
-    st.button("🗑️ Скинути", type="secondary", on_click=clear_text)
+# Кнопки йдуть одна за одною (одна під одною)
+search_button = st.button("🔍 Почати пошук", type="primary")
+clear_button = st.button("🗑️ Очистити поле пошуку", type="secondary", on_click=clear_text)
 
 # --- 6. ЛОГІКА ---
 if search_button and final_context:
@@ -157,14 +129,12 @@ if search_button and final_context:
         current_time = datetime.now().strftime("%d.%m %H:%M:%S")
         start_process = time.time()
         
-        with st.spinner('ШІ аналізує...'):
+        with st.spinner('ШІ аналізує документацію...'):
             try:
                 style = "тези" if answer_mode == "Стисла" else "детально"
                 prompt = f"Контекст: {final_context}\n\nПитання: {query_text}\n\nІнструкція: {style}. Відповідай українською."
                 
-                if not model:
-                    st.error("Ключі API не працюють.")
-                else:
+                if model:
                     response = model.generate_content(prompt)
                     process_time = int(time.time() - start_process)
                     
@@ -180,7 +150,7 @@ if search_button and final_context:
                         "Статус": "Успішно ✅"
                     })
             except Exception as e:
-                st.error("Помилка запиту.")
+                st.error("Помилка запиту. Спробуйте ще раз.")
                 global_stats.append({"Дата/Час": current_time, "Запит": query_text, "Статус": "Помилка", "Час (сек)": 0})
             
             if len(global_stats) > 500: global_stats.pop(0)
