@@ -3,6 +3,7 @@ import google.generativeai as genai
 import PyPDF2
 import os
 import random
+from datetime import datetime
 
 # --- 1. ПІДКЛЮЧЕННЯ (ПРОФЕСІЙНЕ ВИРІШЕННЯ ПОМИЛКИ 404) ---
 def get_working_model():
@@ -72,11 +73,17 @@ with col1:
 with col2:
     search_button = st.button("🔍 Пошук")
 
-# --- 8. ЛОГІКА ВІДПОВІДІ ---
+# --- 8. ЛОГІКА ВІДПОВІДІ ТА ЗБІР СТАТИСТИКИ ---
 if (user_query or search_button) and final_context:
     if not user_query:
         st.warning("Введіть питання.")
     else:
+        # Збір технічних даних користувача (максимум без сторонніх сервісів)
+        headers = st.context.headers
+        user_agent = headers.get("User-Agent", "Unknown Device")
+        browser_lang = headers.get("Accept-Language", "Unknown Lang")
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
         with st.spinner('ШІ аналізує документацію...'):
             try:
                 style = "тези" if answer_mode == "Стисла (головні тези)" else "детально з пунктами правил"
@@ -86,8 +93,22 @@ if (user_query or search_button) and final_context:
                 st.subheader("Відповідь:")
                 st.success(response.text)
                 
+                # ВИВІД АНАЛІТИКИ В КОНСОЛЬ (Manage App -> Logs)
+                print(f"\n--- [ЗВІТ КОРИСТУВАЧА] ---")
+                print(f"ЧАС: {current_time}")
+                print(f"ПРИСТРІЙ: {user_agent}")
+                print(f"МОВА ТЕЛЕФОНУ: {browser_lang}")
+                print(f"ОБРАНИЙ ФАЙЛ: {selected_option}")
+                print(f"ЗАПИТ: {user_query}")
+                print(f"РЕЖИМ: {answer_mode}")
+                print(f"СТАТУС: SUCCESS ✅")
+                print(f"--------------------------\n")
+                
             except Exception as e:
-                st.error(f"Помилка: {e}")
+                error_msg = str(e)
+                st.error(f"Помилка: {error_msg}")
+                # ЛОГУВАННЯ ПОМИЛКИ
+                print(f"!!! [ПОМИЛКА] ЧАС: {current_time} | ФАЙЛ: {selected_option} | ДЕТАЛІ: {error_msg}")
 
 # --- 9. ПІДПИС РОЗРОБНИКА ---
 st.markdown("<br><hr><center><p style='color: gray;'>© 2026 Розробка: ПЧУ-5 Сергій ШИНКАРЕНКО</p></center>", unsafe_allow_html=True)
