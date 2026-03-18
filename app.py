@@ -7,7 +7,7 @@ import pandas as pd
 import time
 from datetime import datetime, timedelta
 
-# --- 0. СПІЛЬНА ПАМ'ЯТЬ ДЛЯ СТАТИСТИКИ (ГЛОБАЛЬНА) ---
+# --- 0. ГЛОБАЛЬНА СТАТИСТИКА (СПІЛЬНА ДЛЯ ВСІХ ПРИСТРОЇВ) ---
 @st.cache_resource
 def get_global_stats():
     return []
@@ -21,25 +21,7 @@ if "user_query" not in st.session_state:
 def clear_text():
     st.session_state.user_query = ""
 
-# --- 1. ПІДКЛЮЧЕННЯ ШІ (РОТАЦІЯ КЛЮЧІВ) ---
-def get_working_model():
-    key_names = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
-    random.shuffle(key_names)
-    for name in key_names:
-        if name in st.secrets:
-            try:
-                api_key = st.secrets[name]
-                genai.configure(api_key=api_key)
-                available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models
-                return genai.GenerativeModel(model_name)
-            except Exception:
-                continue 
-    return None
-
-model = get_working_model()
-
-# --- 2. ІНТЕРФЕЙС ТА СТИЛІЗАЦІЯ ---
+# --- 1. ІНТЕРФЕЙС ТА ПРИМУСОВЕ ПРИХОВУВАННЯ ПАНЕЛІ ---
 st.set_page_config(
     page_title="Технічна бібліотека ст. Ворожба", 
     layout="centered",
@@ -56,6 +38,14 @@ st.markdown("""
     }
     div[data-testid="stButton"] button[kind="primary"] { background-color: #28a745 !important; color: white !important; }
     div[data-testid="stButton"] button[kind="secondary"] { background-color: #dc3545 !important; color: white !important; }
+    
+    /* Фіксація кнопок в один ряд на мобільних пристроях */
+    [data-testid="stHorizontalBlock"] {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        gap: 10px !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -70,7 +60,7 @@ with st.sidebar:
         if global_stats:
             df = pd.DataFrame(global_stats)
             st.subheader("📊 Останні запити")
-            valid_cols = ["Дата/Час", "Запит", "Файл", "Режим", "Час (сек)", "Статус"]
+            valid_cols = ["Дата/Час", "Запит", "Файл", "Ключ", "Час (сек)", "Статус"]
             df_display = df[[c for c in valid_cols if c in df.columns]]
             st.table(df_display[::-1]) 
             
@@ -80,16 +70,10 @@ with st.sidebar:
             if st.button("🗑️ Очистити історію"):
                 global_stats.clear()
                 st.rerun()
-        else:
-            st.info("Запитів поки немає.")
 
 st.subheader("📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5")
 
-if not model:
-    st.error("❌ Не вдалося підключитися до ШІ. Перевірте ключі в Secrets.")
-    st.stop()
-
-# --- 3. ФУНКЦІЯ ЧИТАННЯ PDF ---
+# --- 2. ФУНКЦІЯ ЧИТАННЯ PDF ---
 def extract_text_from_pdf(file_path, max_pages=500):
     text = ""
     try:
@@ -102,80 +86,90 @@ def extract_text_from_pdf(file_path, max_pages=500):
         return text
     except: return ""
 
-# --- 4. ЗБІР ФАЙЛІВ ---
+# --- 3. ЗБІР ФАЙЛІВ ---
 available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
 if not available_files:
     st.warning("⚠️ PDF не знайдені.")
     st.stop()
 
-# --- 5. НАЛАШТУВАННЯ ПОШУКУ ---
+# --- 4. МЕНЮ ---
 st.write("---")
 selected_option = st.selectbox("Оберіть інструкцію:", available_files)
 answer_mode = st.radio("Оберіть тип відповіді:", ["Стисла", "Розгорнута"], index=0, horizontal=True)
 
-# --- 6. ПІДГОТОВКА ТЕКСТУ ---
 final_context = extract_text_from_pdf(selected_option, max_pages=500)
 final_context = final_context[:250000]
 
-# --- 7. ПОШУК ТА КНОПКИ ---
+# --- 5. ПОШУК ТА КНОПКИ ---
 st.write("---")
 user_query = st.text_input("Пошук", placeholder="Введіть ваше питання тут...", key="user_query", label_visibility="collapsed")
 
-search_button = st.button("Пошук", type="primary", use_container_width=True)
-clear_button = st.button("Очистити", type="secondary", on_click=clear_text, use_container_width=True)
+# Кнопки в один ряд
+col1, col2 = st.columns(2)
+with col1:
+    search_button = st.button("🔍 Пошук", type="primary", use_container_width=True)
+with col2:
+    st.button("🗑️ Очистити", type="secondary", on_click=clear_text, use_container_width=True)
 
-# --- 8. ЛОГІКА ВІДПОВІДІ ТА ЗБІР СТАТИСТИКИ ---
+# --- 6. ЛОГІКА ВІДПОВІДІ (З РОТАЦІЄЮ КЛЮЧІВ ПРИ ЗАПИТІ) ---
 if (search_button) and final_context:
     if not user_query.strip():
         st.warning("Введіть питання.")
     else:
-        # ВИПРАВЛЕНО: Корекція часу для України
+        # Корекція часу для України (Березень = +2)
         now_utc = datetime.utcnow()
-        # Квітень - Жовтень = +3 (літо), Березень та інше = +2 (зима)
         ukraine_offset = 3 if (4 <= now_utc.month <= 10) else 2
-        current_time = (now_utc + timedelta(hours=ukraine_offset)).strftime("%d.%m %H:%M:%S")
+        current_date_time = (now_utc + timedelta(hours=ukraine_offset)).strftime("%d.%m %H:%M:%S")
         
         start_process = time.time()
+        success = False
         
         with st.spinner('ШІ аналізує документацію...'):
-            try:
-                style = "тези" if answer_mode == "Стисла" else "детально з пунктами правил"
-                prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nІнструкція: {style}. Відповідай українською."
-                
-                response = model.generate_content(prompt)
-                process_time = int(time.time() - start_process)
-                
-                st.subheader("Відповідь:")
-                st.success(response.text)
-                
+            # Список ключів для перебору
+            key_names = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
+            random.shuffle(key_names) # Мішаємо для рівномірного навантаження
+            
+            for key_id in key_names:
+                if key_id in st.secrets:
+                    try:
+                        # Конфігурація поточного ключа
+                        genai.configure(api_key=st.secrets[key_id])
+                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        
+                        style = "тези" if answer_mode == "Стисла" else "детально з пунктами правил"
+                        prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nІнструкція: {style}. Відповідай українською."
+                        
+                        response = model.generate_content(prompt)
+                        process_time = int(time.time() - start_process)
+                        
+                        # Якщо ми тут — значить ключ спрацював!
+                        st.subheader("Відповідь:")
+                        st.success(response.text)
+                        
+                        global_stats.append({
+                            "Дата/Час": current_date_time,
+                            "Запит": user_query,
+                            "Файл": selected_option[:20],
+                            "Ключ": key_id,
+                            "Режим": answer_mode,
+                            "Час (сек)": process_time,
+                            "Статус": "Успішно ✅"
+                        })
+                        success = True
+                        break # Зупиняємо перебір, відповідь отримана
+                        
+                    except Exception as e:
+                        # Якщо помилка ліміту або інша — просто переходимо до наступного ключа
+                        continue 
+            
+            if not success:
+                st.error("⚠️ На жаль, всі безкоштовні ліміти запитів наразі вичерпані. Спробуйте через 1-2 хвилини.")
                 global_stats.append({
-                    "Дата/Час": current_time,
-                    "Запит": user_query,
-                    "Файл": selected_option[:25],
-                    "Режим": answer_mode,
-                    "Час (сек)": process_time,
-                    "Статус": "Успішно ✅"
-                })
-                
-                if len(global_stats) > 500: global_stats.pop(0)
-                
-            except Exception as e:
-                error_msg = str(e)
-                if "429" in error_msg or "quota" in error_msg.lower():
-                    st.error("⚠️ Досягнуто ліміт безкоштовних запитів до ШІ. Будь ласка, зачекайте 1 хвилину та спробуйте ще раз.")
-                    status_log = "ЛІМІТ ВИЧЕРПАНО ❌"
-                else:
-                    st.error("Виникла технічна помилка. Спробуйте ще раз пізніше.")
-                    status_log = f"ПОМИЛКА: {error_msg[:30]}"
-                
-                global_stats.append({
-                    "Дата/Час": current_time, 
+                    "Дата/Час": current_date_time, 
                     "Запит": user_query, 
-                    "Файл": selected_option[:25],
-                    "Режим": answer_mode,
-                    "Статус": status_log,
+                    "Статус": "ВСІ КЛЮЧІ ВИЧЕРПАНІ ❌",
                     "Час (сек)": 0
                 })
 
-# --- 9. ПІДПИС РОЗРОБНИКА ---
+# --- 7. ПІДПИС РОЗРОБНИКА ---
 st.markdown("<br><hr><center><p style='color: gray;'>© 2026 Розробка: ПЧУ-5 Сергій ШИНКАРЕНКО</p></center>", unsafe_allow_html=True)
