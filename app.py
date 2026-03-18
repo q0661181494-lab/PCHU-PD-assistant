@@ -16,20 +16,34 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ПОСИЛЕНИЙ CSS
+# ОНОВЛЕНИЙ CSS для кнопок на всю ширину
 st.markdown("""
     <style>
     .block-container { padding-top: 2rem !important; }
+    
+    /* Кнопки: на всю ширину, високі та з відступами */
     div[data-testid="stButton"] button {
         width: 100% !important; 
         height: 55px !important; 
-        margin-top: 10px !important;
+        margin-top: 12px !important; /* Відступ між кнопками */
+        margin-bottom: 5px !important;
         font-size: 18px !important; 
         font-weight: bold !important; 
-        border-radius: 10px !important;
+        border-radius: 12px !important;
+        border: none !important;
+        display: block !important;
     }
-    div[data-testid="stButton"] button[kind="primary"] { background-color: #28a745 !important; color: white !important; }
-    div[data-testid="stButton"] button[kind="secondary"] { background-color: #6c757d !important; color: white !important; }
+    
+    div[data-testid="stButton"] button[kind="primary"] { 
+        background-color: #28a745 !important; 
+        color: white !important; 
+    }
+    
+    div[data-testid="stButton"] button[kind="secondary"] { 
+        background-color: #6c757d !important; 
+        color: white !important; 
+    }
+
     .main-title {
         text-align: center;
         font-size: 26px;
@@ -51,7 +65,6 @@ global_stats = get_global_stats()
 
 @st.cache_data(show_spinner="Обробка інструкції... Це займе трохи часу для великих файлів.")
 def get_cleaned_pdf_context(file_path):
-    """Зчитує весь текст, очищує його від зайвих пробілів та кешує."""
     text = ""
     try:
         with open(file_path, "rb") as f:
@@ -60,11 +73,8 @@ def get_cleaned_pdf_context(file_path):
                 t = page.extract_text()
                 if t:
                     text += t + " "
-        
-        # Оптимізація: видаляємо подвійні пробіли та зайві переноси рядків (економія токенів)
         text = re.sub(r'\s+', ' ', text).strip()
-        
-        # Ліміт 750,000 символів (~300 сторінок), щоб ШІ точно все прочитав
+        # Ліміт 750,000 символів (~300 сторінок)
         return text[:750000]
     except Exception as e:
         return f"Помилка читання PDF: {e}"
@@ -98,18 +108,15 @@ st.write("---")
 selected_file = st.selectbox("Оберіть інструкцію:", available_files)
 answer_mode = st.radio("Тип відповіді:", ["Стисла (тези)", "Розгорнута (пункти правил)"], horizontal=True)
 
-# Отримуємо текст (кешовано)
 final_context = get_cleaned_pdf_context(selected_file)
 
-# --- 5. ПОШУК ---
+# --- 5. ПОШУК (КНОПКИ НА ВСЮ ШИРИНУ) ---
 st.write("---")
 user_query = st.text_input("Пошук", placeholder="Наприклад: Які терміни огляду колії?", key="user_query", label_visibility="collapsed")
 
-col1, col2 = st.columns(2)
-with col1:
-    search_button = st.button("🔍 Пошук", type="primary")
-with col2:
-    st.button("🗑️ Очистити", type="secondary", on_click=clear_text)
+# Кнопки розміщені прямо в основному контейнері (не в колонках)
+search_button = st.button("🔍 Пошук", type="primary", use_container_width=True)
+st.button("🗑️ Очистити поле", type="secondary", on_click=clear_text, use_container_width=True)
 
 # --- 6. ЛОГІКА Gemini ---
 if search_button:
@@ -129,7 +136,6 @@ if search_button:
             for key_id in keys:
                 try:
                     genai.configure(api_key=st.secrets[key_id])
-                    # Використовуємо системну інструкцію для кращої точності
                     model = genai.GenerativeModel(
                         model_name='gemini-1.5-flash',
                         system_instruction="Ти — технічний експерт ПЧУ-5. Відповідай суворо за наданим текстом інструкції. Якщо інформації немає в тексті, так і скажи."
@@ -152,7 +158,7 @@ if search_button:
                     break
                 
                 except ResourceExhausted:
-                    continue # Пробуємо наступний ключ
+                    continue 
                 except Exception as e:
                     st.error(f"Помилка: {e}")
                     break
