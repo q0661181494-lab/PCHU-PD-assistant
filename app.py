@@ -32,12 +32,11 @@ def get_pdf_text(file_path):
     try:
         with open(file_path, "rb") as f:
             reader = PyPDF2.PdfReader(f)
-            # Для надійності обмежимо зчитування 150 сторінками, якщо модель буде старішою
             for i, page in enumerate(reader.pages):
-                if i > 150: break 
+                if i > 250: break 
                 t = page.extract_text()
                 if t: text += t + " "
-        return re.sub(r'\s+', ' ', text).strip()[:100000] # Тимчасово зменшимо для тесту
+        return re.sub(r'\s+', ' ', text).strip()[:700000]
     except Exception as e: return f"Помилка: {e}"
 
 if "user_query" not in st.session_state: st.session_state.user_query = ""
@@ -57,13 +56,14 @@ user_query = st.text_input("Пошук", placeholder="Ваше питання...
 search_btn = st.button("🔍 Пошук", type="primary", use_container_width=True)
 st.button("🗑️ Очистити поле", type="secondary", on_click=clear_text, use_container_width=True)
 
-# --- 4. ЛОГІКА ШІ (УНІВЕРСАЛЬНА) ---
+# --- 4. ЛОГІКА ШІ ---
 if search_btn and user_query:
     success = False
-    # Пріоритет: 1.5 Flash -> 1.5 Flash-latest -> 1.0 Pro (найбільш сумісна)
-    model_variants = ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-1.0-pro']
+    # Перелік моделей для обходу помилки 404
+    model_variants = ['gemini-1.5-flash-latest', 'gemini-1.5-flash', 'gemini-1.0-pro']
+    last_error = "Невідома помилка"
     
-    with st.spinner('Зв'язoк з сервером Google...'):
+    with st.spinner("Зв'язок з сервером Google..."):
         available_keys = [k for k in ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"] if k in st.secrets]
         random.shuffle(available_keys)
 
@@ -73,30 +73,21 @@ if search_btn and user_query:
             
             for mv in model_variants:
                 try:
-                    # Для 1.0 Pro не використовуємо system_instruction (вона її не підтримує)
-                    if mv == 'gemini-1.0-pro':
-                        model = genai.GenerativeModel(model_name=mv)
-                        full_prompt = f"Ти технічний експерт. Використовуй цей текст: {final_context}\n\nПитання: {user_query}. Відповідай українською."
-                    else:
-                        model = genai.GenerativeModel(
-                            model_name=mv,
-                            system_instruction="Ти експерт ПЧУ-5. Відповідай суворо за текстом."
-                        )
-                        full_prompt = f"Контекст: {final_context}\n\nПитання: {user_query}"
+                    model = genai.GenerativeModel(model_name=mv)
+                    # Формуємо запит залежно від моделі
+                    full_prompt = f"Ти експерт залізниці. Використовуй текст: {final_context}\n\nПитання: {user_query}. Відповідай українською."
                     
                     response = model.generate_content(full_prompt)
                     st.subheader("Результат:")
                     st.success(response.text)
                     success = True
                     break 
-                except (PermissionDenied, NotFound):
-                    continue # Пробуємо іншу модель або ключ
                 except Exception as e:
                     last_error = str(e)
                     continue
 
         if not success:
-            st.error(f"⚠️ Помилка доступу. Можлива причина: ваш регіон заблоковано Google для API. Спробуйте створити новий ключ з іншим обліковим записом Google.")
-            st.info(f"Технічні деталі останньої спроби: {last_error}")
+            st.error("⚠️ Не вдалося отримати відповідь.")
+            st.info(f"Технічна помилка: {last_error}")
 
 st.markdown(f"<hr><center>© {datetime.now().year} ПЧУ-5 Сергій ШИНКАРЕНКО</center>", unsafe_allow_html=True)
