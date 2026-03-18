@@ -1,5 +1,6 @@
 import streamlit as st
 import google.generativeai as genai
+from google.api_core.exceptions import ResourceExhausted
 import PyPDF2
 import os
 import random
@@ -102,7 +103,8 @@ def extract_text_from_pdf(file_path, max_pages=500):
                 t = page.extract_text()
                 if t: text += t + "\n"
         return text
-    except: return ""
+    except: 
+        return ""
 
 available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
 if not available_files:
@@ -140,34 +142,47 @@ if search_button and final_context:
         
         with st.spinner('ШІ шукає відповідь...'):
             key_names = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
-            random.shuffle(key_names) 
             
-            for key_id in key_names:
-                if key_id in st.secrets:
-                    tried_keys.append(key_id)
-                    try:
-                        genai.configure(api_key=st.secrets[key_id])
-                        model = genai.GenerativeModel('gemini-1.5-flash')
-                        
-                        style = "тези" if answer_mode == "Стисла" else "детально з пунктами правил"
-                        prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nІнструкція: {style}. Відповідай українською."
-                        
-                        response = model.generate_content(prompt)
-                        st.subheader("Результат пошуку:")
-                        st.success(response.text)
-                        
-                        global_stats.append({
-                            "Дата/Час": current_date_time,
-                            "Запит": user_query,
-                            "Статус": "Успішно",
-                            "Ключ": key_id
-                        })
-                        success = True
-                        break 
-                    except: continue 
+            # Фільтруємо тільки ті ключі, які реально існують у secrets
+            available_keys = [k for k in key_names if k in st.secrets]
+            random.shuffle(available_keys) 
             
-            if not success:
-                st.error("⚠️ На жаль, зараз ліміти безкоштовних запитів вичерпані. Спробуйте пізніше.")
+            for key_id in available_keys:
+                tried_keys.append(key_id)
+                try:
+                    # Ініціалізація нового ключа
+                    genai.configure(api_key=st.secrets[key_id])
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    
+                    style = "тези" if answer_mode == "Стисла" else "детально з пунктами правил"
+                    prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nІнструкція: {style}. Відповідай українською."
+                    
+                    response = model.generate_content(prompt)
+                    
+                    st.subheader("Результат пошуку:")
+                    st.success(response.text)
+                    
+                    # Збереження статистики
+                    global_stats.append({
+                        "Дата/Час": current_date_time,
+                        "Запит": user_query,
+                        "Статус": "Успішно",
+                        "Ключ": key_id
+                    })
+                    success = True
+                    break # Успішно отримали відповідь, виходимо з циклу
+                    
+                except ResourceExhausted:
+                    # Помилка 429: ліміти вичерпано. Йдемо на наступну ітерацію (інший ключ)
+                    continue 
+                except Exception as e:
+                    # Інша помилка (наприклад, блокування безпеки або завеликий PDF)
+                    st.error(f"⚠️ Помилка обробки запиту: {e}")
+                    # Немає сенсу перебирати інші ключі, якщо проблема в самому тексті або налаштуваннях
+                    break 
+        
+        if not success:
+            st.error("⚠️ На жаль, зараз ліміти безкоштовних запитів вичерпані або сталася помилка. Спробуйте пізніше.")
 
 # --- 7. ПІДПИС ---
 st.markdown("<br><hr><center><p style='color: gray;'>© 2026 ПЧУ-5 Сергій ШИНКАРЕНКО</p></center>", unsafe_allow_html=True)
