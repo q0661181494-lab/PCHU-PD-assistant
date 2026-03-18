@@ -163,4 +163,43 @@ user_query = st.text_input("Пошук", placeholder="Введіть ваше з
 search_button = st.button("🔍 Пошук", type="primary")
 clear_button = st.button("🗑️ Очистити поле", type="secondary", on_click=clear_search_field)
 
-# --- 7. ЛОГІКА ВІД
+# --- 7. ЛОГІКА ВІДПОВІДІ З ЕЛЕМЕНТОМ STATUS ---
+if search_button:
+    if not user_query:
+        st.warning("Будь ласка, введіть запитання.")
+    elif not full_document_text:
+        st.error("Помилка зчитування файлу.")
+    else:
+        # Покрокове відображення процесу
+        with st.status("Обробка запиту...", expanded=True) as status:
+            st.write("📖 Зчитую інструкцію...")
+            st.write("🔍 Шукаю потрібний розділ у документації...")
+            context = get_relevant_context(user_query, full_document_text)
+            
+            st.write("🤖 Формую відповідь...")
+            style = "тези" if answer_mode == "Стисла (тези)" else "детально з пунктами правил"
+            prompt = f"Контекст: {context}\n\nПитання: {user_query}\n\nСтиль: {style}. Українською."
+            
+            answer, used_model, used_key = get_ai_response(prompt)
+            
+            if answer:
+                status.update(label="✅ Аналіз завершено!", state="complete", expanded=False)
+            else:
+                status.update(label="❌ Виникла помилка", state="error", expanded=True)
+
+        # Вивід результату в гарній картці
+        if answer:
+            st.subheader("Результат:")
+            st.markdown(f'<div class="answer-card">{answer}</div>', unsafe_allow_html=True)
+            
+            # Статистика
+            now = (datetime.now() + timedelta(hours=2)).strftime("%H:%M:%S")
+            st.session_state.stats_history.append({
+                "Час": now, 
+                "Запит": user_query, 
+                "ШІ": used_model.replace("models/", ""), 
+                "Ключ": used_key
+            })
+
+# --- 8. ПІДПИС ---
+st.markdown(f"<div style='text-align: center; color: gray; font-size: 10px; margin-top: 40px;'>© {datetime.now().year} ПЧУ-5 Сергій ШИНКАРЕНКО</div>", unsafe_allow_html=True)
