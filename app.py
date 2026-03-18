@@ -7,32 +7,24 @@ import pandas as pd
 import time
 from datetime import datetime, timedelta
 
-# --- 0. ГЛОБАЛЬНА СТАТИСТИКА (СПІЛЬНА ДЛЯ ВСІХ ПРИСТРОЇВ) ---
-@st.cache_resource
-def get_global_stats():
-    return []
-
-global_stats = get_global_stats()
-
-# Стан поля пошуку для функції очищення
-if "user_query" not in st.session_state:
-    st.session_state.user_query = ""
-
-def clear_text():
-    st.session_state.user_query = ""
-
-# --- 1. ІНТЕРФЕЙС ТА ПРИМУСОВЕ ПРИХОВУВАННЯ ПАНЕЛІ ---
+# --- 1. КОНФІГУРАЦІЯ СТОРІНКИ (МАКСИМАЛЬНО ВГОРУ) ---
 st.set_page_config(
     page_title="Технічна бібліотека ст. Ворожба", 
     layout="centered",
     initial_sidebar_state="collapsed"
 )
 
-# Посилений CSS для кнопок на всю ширину та оформлення
+# ПОСИЛЕНИЙ CSS: Відступи, Кольори кнопок та Заголовок
 st.markdown("""
     <style>
-    input::-webkit-search-cancel-button { -webkit-appearance: searchfield-cancel-button !important; cursor: pointer; }
+    /* Видаляємо стандартні відступи Streamlit зверху */
+    .block-container {
+        padding-top: 0.5rem !important;
+        padding-bottom: 0rem !important;
+    }
     
+    header {visibility: hidden;}
+
     /* Кнопки на всю ширину та висоту */
     div[data-testid="stButton"] button {
         width: 100% !important; 
@@ -42,58 +34,66 @@ st.markdown("""
         font-size: 18px !important; 
         font-weight: bold !important; 
         border-radius: 10px !important;
+        border: none !important;
     }
     
-    /* Стиль основної кнопки (Пошук) */
+    /* Зелена кнопка (Пошук) */
     div[data-testid="stButton"] button[kind="primary"] { 
         background-color: #28a745 !important; 
         color: white !important; 
-        border: none !important;
     }
     
-    /* Стиль кнопки очищення (Очистити) */
+    /* СІРА кнопка (Очистити) */
     div[data-testid="stButton"] button[kind="secondary"] { 
-        background-color: #dc3545 !important; 
+        background-color: #6c757d !important; 
         color: white !important; 
-        border: none !important;
     }
 
-    /* Вимикаємо флекс-ряд для кнопок, щоб вони точно йшли одна під одною */
-    [data-testid="stHorizontalBlock"] {
-        flex-direction: column !important;
+    /* Стиль заголовка */
+    .main-title {
+        margin-top: -30px !important;
+        padding-bottom: 10px;
+        text-align: center;
+        font-size: 24px;
+        font-weight: bold;
     }
     </style>
     """, unsafe_allow_html=True)
 
+# Заголовок у самому верху
+st.markdown("<div class='main-title'>📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5</div>", unsafe_allow_html=True)
+
+# --- 0. ГЛОБАЛЬНА СТАТИСТИКА ---
+@st.cache_resource
+def get_global_stats():
+    return []
+
+global_stats = get_global_stats()
+
+if "user_query" not in st.session_state:
+    st.session_state.user_query = ""
+
+def clear_text():
+    st.session_state.user_query = ""
+
+# --- БІЧНА ПАНЕЛЬ (SIDEBAR) ---
 with st.sidebar:
-    st.markdown("<h3 style='margin-bottom: 0px;'>⚙️ Налаштування</h3>", unsafe_allow_html=True)
-    st.markdown("<p style='color: gray; font-size: 0.8rem; margin-bottom: -15px;'>тільки для адміністратора</p>", unsafe_allow_html=True)
-    
-    admin_password = st.text_input("Пароль адміністратора:", type="password", placeholder="Введіть пароль...")
+    st.markdown("### ⚙️ Налаштування")
+    admin_password = st.text_input("Пароль адміністратора:", type="password")
     
     if admin_password == "30033003": 
-        st.success("Доступ до аналітики відкрито")
+        st.success("Доступ відкрито")
         if global_stats:
             df = pd.DataFrame(global_stats)
-            st.subheader("📊 Останні запити")
-            valid_cols = ["Дата/Час", "Запит", "Файл", "Ключ", "Час (сек)", "Статус"]
-            df_display = df[[c for c in valid_cols if c in df.columns]]
-            st.table(df_display[::-1]) 
-            
-            csv = df.to_csv(index=False, sep=';').encode('utf-8-sig')
-            st.download_button(label="📥 Скачати звіт (Excel)", data=csv, file_name=f"pchu5_stats_{datetime.now().strftime('%d_%m')}.csv", mime="text/csv")
-            
-            if st.button("🗑️ Очистити історію"):
+            st.table(df[[c for c in ["Дата/Час", "Запит", "Статус"] if c in df.columns]][::-1])
+            if st.button("🗑️ Очистити історію", type="secondary"):
                 global_stats.clear()
                 st.rerun()
 
-st.subheader("📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5")
-
-# --- 2. ФУНКЦІЯ ЧИТАННЯ PDF ---
+# --- 2. ФУНКЦІЇ ТА ЗБІР ФАЙЛІВ ---
 def extract_text_from_pdf(file_path, max_pages=500):
     text = ""
     try:
-        if not os.path.exists(file_path): return ""
         with open(file_path, "rb") as f:
             reader = PyPDF2.PdfReader(f)
             for page in reader.pages[:max_pages]:
@@ -102,35 +102,31 @@ def extract_text_from_pdf(file_path, max_pages=500):
         return text
     except: return ""
 
-# --- 3. ЗБІР ФАЙЛІВ ---
 available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
 if not available_files:
-    st.warning("⚠️ PDF файли не знайдені в директорії додатка.")
+    st.warning("⚠️ PDF файли не знайдені.")
     st.stop()
 
-# --- 4. МЕНЮ ---
+# --- 4. МЕНЮ ВИБОРУ ---
 st.write("---")
 selected_option = st.selectbox("Оберіть інструкцію:", available_files)
-answer_mode = st.radio("Оберіть тип відповіді:", ["Стисла", "Розгорнута"], index=0, horizontal=True)
+answer_mode = st.radio("Тип відповіді:", ["Стисла", "Розгорнута"], horizontal=True)
 
-final_context = extract_text_from_pdf(selected_option, max_pages=500)
-# Обмеження контексту для стабільності
-final_context = final_context[:200000]
+final_context = extract_text_from_pdf(selected_option)[:200000]
 
-# --- 5. ПОШУК ТА КНОПКИ (ОДНА ПІД ОДНОЮ) ---
+# --- 5. ПОШУК ТА КНОПКИ ---
 st.write("---")
 user_query = st.text_input("Пошук", placeholder="Введіть ваше питання тут...", key="user_query", label_visibility="collapsed")
 
-# Кнопки розташовані вертикально
+# Кнопки одна під одною (використовують CSS вище)
 search_button = st.button("🔍 Пошук", type="primary", use_container_width=True)
 st.button("🗑️ Очистити поле", type="secondary", on_click=clear_text, use_container_width=True)
 
 # --- 6. ЛОГІКА ВІДПОВІДІ ---
 if search_button and final_context:
     if not user_query.strip():
-        st.warning("Будь ласка, введіть питання.")
+        st.warning("Введіть питання.")
     else:
-        # Корекція часу для України
         now_utc = datetime.utcnow()
         ukraine_offset = 3 if (4 <= now_utc.month <= 10) else 2
         current_date_time = (now_utc + timedelta(hours=ukraine_offset)).strftime("%d.%m %H:%M:%S")
@@ -150,42 +146,24 @@ if search_button and final_context:
                         genai.configure(api_key=st.secrets[key_id])
                         model = genai.GenerativeModel('gemini-1.5-flash')
                         
-                        style = "тези" if answer_mode == "Стисла" else "детально з пунктами правил та розділами"
-                        prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nІнструкція: {style}. Відповідай українською мовою."
+                        style = "тези" if answer_mode == "Стисла" else "детально з пунктами правил"
+                        prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nІнструкція: {style}. Відповідай українською."
                         
                         response = model.generate_content(prompt)
-                        process_time = int(time.time() - start_process)
-                        
                         st.subheader("Відповідь:")
                         st.success(response.text)
-                        
-                        keys_chain = ", ".join(tried_keys) + " ✅"
                         
                         global_stats.append({
                             "Дата/Час": current_date_time,
                             "Запит": user_query,
-                            "Файл": selected_option[:30],
-                            "Ключ": keys_chain,
-                            "Режим": answer_mode,
-                            "Час (сек)": process_time,
                             "Статус": "Успішно"
                         })
                         success = True
                         break 
-                        
-                    except Exception:
-                        continue 
+                    except: continue 
             
             if not success:
-                st.error("⚠️ Всі ліміти запитів вичерпані. Спробуйте пізніше або зверніться до адміністратора.")
-                keys_chain = ", ".join(tried_keys) + " ❌"
-                global_stats.append({
-                    "Дата/Час": current_date_time, 
-                    "Запит": user_query, 
-                    "Ключ": keys_chain, 
-                    "Статус": "ПОМИЛКА ЛІМІТІВ",
-                    "Час (сек)": 0
-                })
+                st.error("⚠️ Ліміти вичерпані. Спробуйте пізніше.")
 
-# --- 7. ПІДПИС РОЗРОБНИКА ---
-st.markdown("<br><hr><center><p style='color: gray;'>© 2026 Розробка: ПЧУ-5 Сергій ШИНКАРЕНКО</p></center>", unsafe_allow_html=True)
+# --- 7. ПІДПИС ---
+st.markdown("<br><hr><center><p style='color: gray;'>© 2026 ПЧУ-5 Сергій ШИНКАРЕНКО</p></center>", unsafe_allow_html=True)
