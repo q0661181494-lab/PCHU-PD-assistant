@@ -10,12 +10,12 @@ from datetime import datetime, timedelta
 if "stats_history" not in st.session_state:
     st.session_state.stats_history = []
 
-# --- 2. КОНФІГУРАЦІЯ СТОРІНКИ ТА ПОСИЛЕНИЙ CSS ---
+# --- 2. КОНФІГУРАЦІЯ СТОРІНКИ ТА ПРИМУСОВИЙ CSS ---
 st.set_page_config(page_title="Бібліотека ПЧУ-5", layout="centered")
 
 st.markdown("""
     <style>
-    /* Головний заголовок */
+    /* 1. Головний заголовок */
     .main-title {
         text-align: center;
         font-size: 24px;
@@ -24,15 +24,22 @@ st.markdown("""
         margin-bottom: 25px;
         line-height: 1.2;
         color: #1E1E1E;
+        display: block;
     }
     
-    /* ПРИМУСОВЕ РОЗТЯГУВАННЯ КНОПОК (Максимальний пріоритет) */
+    /* 2. ПРИМУСОВЕ РОЗТЯГУВАННЯ КНОПОК НА ВЕСЬ ЕКРАН */
+    /* Знімаємо обмеження ширини внутрішніх блоків Streamlit */
+    [data-testid="stVerticalBlock"] > div:has(div.stButton) {
+        width: 100% !important;
+    }
+
+    /* Стилізація контейнера кнопки */
     .stButton {
         width: 100% !important;
     }
-    
-    /* Селектор для самої кнопки всередині будь-якого контейнера */
-    div[data-testid="stButton"] > button {
+
+    /* Стилізація самої кнопки (максимальний пріоритет) */
+    div[data-testid="stButton"] button {
         width: 100% !important;
         display: block !important;
         height: 55px !important;
@@ -40,30 +47,38 @@ st.markdown("""
         font-weight: bold !important;
         font-size: 18px !important;
         margin-top: 8px !important;
+        margin-bottom: 8px !important;
         border: none !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
+        transition: all 0.2s ease-in-out !important;
     }
     
     /* Кольори кнопок */
     div[data-testid="stButton"] button[kind="primary"] {
-        background-color: #28a745 !important;
+        background-color: #28a745 !important; /* Зелений */
         color: white !important;
     }
     div[data-testid="stButton"] button[kind="secondary"] {
-        background-color: #6c757d !important;
+        background-color: #6c757d !important; /* Сірий */
         color: white !important;
+    }
+
+    /* Ефект при натисканні */
+    div[data-testid="stButton"] button:active {
+        transform: scale(0.98) !important;
     }
 
     /* Картка відповіді */
     .answer-card {
         background-color: #ffffff;
-        padding: 20px;
+        padding: 22px;
         border-radius: 15px;
         border-left: 6px solid #28a745;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         color: #1E1E1E;
         line-height: 1.6;
         margin-top: 20px;
+        font-size: 16px;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -87,17 +102,20 @@ def extract_text_from_pdf(file_path):
     except: return ""
 
 def get_relevant_context(query, full_text, top_k=15):
+    # RAG: Розбиття на частини для точності
     chunks = [full_text[i:i+3000] for i in range(0, len(full_text), 2500)]
     if not query: return "\n".join(chunks[:5])
+    
     query_words = query.lower().split()
     scored_chunks = []
     for chunk in chunks:
         score = sum(chunk.lower().count(word) for word in query_words)
         scored_chunks.append((score, chunk))
+    
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
     return "\n---\n".join([c[1] for c in scored_chunks[:top_k]])
 
-# --- 4. РОБОТА З ШІ ---
+# --- 4. РОБОТА З ШІ (API) ---
 def get_ai_response(prompt):
     key_names = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
     random.shuffle(key_names)
@@ -119,7 +137,7 @@ with st.sidebar:
     st.header("🔐 Адмін-панель")
     access_code = st.text_input("Введіть код доступу:", type="password")
     if access_code == "3003": 
-        st.subheader("Історія сесії")
+        st.subheader("Історія поточної сесії")
         if st.session_state.stats_history:
             df = pd.DataFrame(st.session_state.stats_history)
             st.dataframe(df[::-1], use_container_width=True)
@@ -135,46 +153,14 @@ if not available_files:
 selected_option = st.selectbox("Оберіть інструкцію:", available_files)
 answer_mode = st.radio("Тип відповіді:", ["Стисла (тези)", "Розгорнута (детально)"], horizontal=True)
 
+# Зчитування тексту з кешуванням
 full_document_text = extract_text_from_pdf(selected_option)
 
 # Поле вводу
-user_query = st.text_input("Пошук", placeholder="Введіть питання...", key="query_field", label_visibility="collapsed")
+user_query = st.text_input("Пошук", placeholder="Введіть ваше запитання...", key="query_field", label_visibility="collapsed")
 
-# Кнопки
+# Кнопки (одна під одною)
 search_button = st.button("🔍 Пошук", type="primary")
 clear_button = st.button("🗑️ Очистити поле", type="secondary", on_click=clear_search_field)
 
-# --- 7. ЛОГІКА ВІДПОВІДІ (З НОВИМ STATUS) ---
-if search_button:
-    if not user_query:
-        st.warning("Будь ласка, введіть запитання.")
-    elif not full_document_text:
-        st.error("Помилка зчитування файлу.")
-    else:
-        with st.status("Опрацювання запиту...", expanded=True) as status:
-            st.write("📖 Зчитую інструкцію...")
-            st.write("🔍 Шукаю потрібний розділ...")
-            context = get_relevant_context(user_query, full_document_text)
-            st.write("🤖 Формую відповідь...")
-            
-            style = "тези" if answer_mode == "Стисла (тези)" else "детально з пунктами правил"
-            prompt = f"Контекст: {context}\n\nПитання: {user_query}\n\nСтиль: {style}. Українською."
-            
-            answer, used_model, used_key = get_ai_response(prompt)
-            
-            if answer:
-                status.update(label="✅ Відповідь сформована!", state="complete", expanded=False)
-            else:
-                status.update(label="❌ Помилка", state="error", expanded=True)
-
-        if answer:
-            st.subheader("Результат:")
-            st.markdown(f'<div class="answer-card">{answer}</div>', unsafe_allow_html=True)
-            
-            now = (datetime.now() + timedelta(hours=2)).strftime("%H:%M:%S")
-            st.session_state.stats_history.append({
-                "Час": now, "Запит": user_query, 
-                "ШІ": used_model.replace("models/", ""), "Ключ": used_key
-            })
-
-st.markdown(f"<div style='text-align: center; color: gray; font-size: 10px; margin-top: 40px;'>© {datetime.now().year} ПЧУ-5 Сергій ШИНКАРЕНКО</div>", unsafe_allow_html=True)
+# --- 7. ЛОГІКА ВІД
