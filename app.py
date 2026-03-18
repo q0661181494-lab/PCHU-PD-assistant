@@ -7,7 +7,7 @@ import pandas as pd
 import time
 from datetime import datetime, timedelta
 
-# --- 1. КОНФІГУРАЦІЯ СТОРІНКИ (МАКСИМАЛЬНО ВГОРУ) ---
+# --- 1. КОНФІГУРАЦІЯ СТОРІНКИ ---
 st.set_page_config(
     page_title="Технічна бібліотека ст. Ворожба", 
     layout="centered",
@@ -17,14 +17,12 @@ st.set_page_config(
 # ПОСИЛЕНИЙ CSS: Відступи, Кольори кнопок та Заголовок
 st.markdown("""
     <style>
-    /* Видаляємо стандартні відступи Streamlit зверху */
+    /* Налаштування відступів контейнера */
     .block-container {
-        padding-top: 0.5rem !important;
+        padding-top: 2rem !important; /* Трохи більше місця зверху для видимості меню */
         padding-bottom: 0rem !important;
     }
     
-    header {visibility: hidden;}
-
     /* Кнопки на всю ширину та висоту */
     div[data-testid="stButton"] button {
         width: 100% !important; 
@@ -49,18 +47,19 @@ st.markdown("""
         color: white !important; 
     }
 
-    /* Стиль заголовка */
+    /* Стиль заголовка - тепер з невеликим відступом зверху */
     .main-title {
-        margin-top: -30px !important;
-        padding-bottom: 10px;
+        margin-top: 10px !important;
+        padding-bottom: 15px;
         text-align: center;
-        font-size: 24px;
+        font-size: 26px;
         font-weight: bold;
+        color: #1E1E1E;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# Заголовок у самому верху
+# Заголовок
 st.markdown("<div class='main-title'>📚 РОЗУМНА ТЕХНІЧНА БІБЛІОТЕКА ПЧУ-5</div>", unsafe_allow_html=True)
 
 # --- 0. ГЛОБАЛЬНА СТАТИСТИКА ---
@@ -78,17 +77,20 @@ def clear_text():
 
 # --- БІЧНА ПАНЕЛЬ (SIDEBAR) ---
 with st.sidebar:
-    st.markdown("### ⚙️ Налаштування")
-    admin_password = st.text_input("Пароль адміністратора:", type="password")
+    st.markdown("### ⚙️ Адмін-панель")
+    admin_password = st.text_input("Введіть пароль для статистики:", type="password")
     
     if admin_password == "30033003": 
-        st.success("Доступ відкрито")
+        st.success("Доступ до аналітики відкрито")
         if global_stats:
             df = pd.DataFrame(global_stats)
-            st.table(df[[c for c in ["Дата/Час", "Запит", "Статус"] if c in df.columns]][::-1])
+            st.write("Останні запити:")
+            st.dataframe(df[::-1], use_container_width=True)
             if st.button("🗑️ Очистити історію", type="secondary"):
                 global_stats.clear()
                 st.rerun()
+        else:
+            st.info("Історія запитів порожня.")
 
 # --- 2. ФУНКЦІЇ ТА ЗБІР ФАЙЛІВ ---
 def extract_text_from_pdf(file_path, max_pages=500):
@@ -104,7 +106,7 @@ def extract_text_from_pdf(file_path, max_pages=500):
 
 available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
 if not available_files:
-    st.warning("⚠️ PDF файли не знайдені.")
+    st.warning("⚠️ Покладіть PDF файли в папку з додатком.")
     st.stop()
 
 # --- 4. МЕНЮ ВИБОРУ ---
@@ -112,20 +114,21 @@ st.write("---")
 selected_option = st.selectbox("Оберіть інструкцію:", available_files)
 answer_mode = st.radio("Тип відповіді:", ["Стисла", "Розгорнута"], horizontal=True)
 
+# Кешування контексту для швидкості (опціонально)
 final_context = extract_text_from_pdf(selected_option)[:200000]
 
 # --- 5. ПОШУК ТА КНОПКИ ---
 st.write("---")
 user_query = st.text_input("Пошук", placeholder="Введіть ваше питання тут...", key="user_query", label_visibility="collapsed")
 
-# Кнопки одна під одною (використовують CSS вище)
+# Кнопки вертикально одна під одною
 search_button = st.button("🔍 Пошук", type="primary", use_container_width=True)
 st.button("🗑️ Очистити поле", type="secondary", on_click=clear_text, use_container_width=True)
 
 # --- 6. ЛОГІКА ВІДПОВІДІ ---
 if search_button and final_context:
     if not user_query.strip():
-        st.warning("Введіть питання.")
+        st.warning("Будь ласка, напишіть запитання.")
     else:
         now_utc = datetime.utcnow()
         ukraine_offset = 3 if (4 <= now_utc.month <= 10) else 2
@@ -135,7 +138,7 @@ if search_button and final_context:
         success = False
         tried_keys = [] 
         
-        with st.spinner('ШІ аналізує документацію...'):
+        with st.spinner('ШІ шукає відповідь...'):
             key_names = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
             random.shuffle(key_names) 
             
@@ -150,20 +153,21 @@ if search_button and final_context:
                         prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nІнструкція: {style}. Відповідай українською."
                         
                         response = model.generate_content(prompt)
-                        st.subheader("Відповідь:")
+                        st.subheader("Результат пошуку:")
                         st.success(response.text)
                         
                         global_stats.append({
                             "Дата/Час": current_date_time,
                             "Запит": user_query,
-                            "Статус": "Успішно"
+                            "Статус": "Успішно",
+                            "Ключ": key_id
                         })
                         success = True
                         break 
                     except: continue 
             
             if not success:
-                st.error("⚠️ Ліміти вичерпані. Спробуйте пізніше.")
+                st.error("⚠️ На жаль, зараз ліміти безкоштовних запитів вичерпані. Спробуйте пізніше.")
 
 # --- 7. ПІДПИС ---
 st.markdown("<br><hr><center><p style='color: gray;'>© 2026 ПЧУ-5 Сергій ШИНКАРЕНКО</p></center>", unsafe_allow_html=True)
