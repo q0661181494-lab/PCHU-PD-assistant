@@ -128,58 +128,61 @@ query_text = st.text_input("Пошук", placeholder="Введіть ваше п
 search_button = st.button("Пошук", type="primary", use_container_width=True)
 clear_button = st.button("Очистити", type="secondary", on_click=clear_text, use_container_width=True)
 
-# --- 7. ЛОГІКА ВІДПОВІДІ ТА ЗАПИС СТАТИСТИКИ ---
+# --- 7. ЛОГІКА ВІДПОВІДІ (З АВТОМАТИЧНИМ ПЕРЕБОРОМ КЛЮЧІВ ПРИ ПОМИЛЦІ) ---
 if (search_button) and final_context:
-    if not query_text.strip():
+    if not user_query.strip():
         st.warning("Введіть питання.")
     else:
-        # Корекція часу для України (зараз Березень = +2)
+        # Час
         now_utc = datetime.utcnow()
         ukraine_offset = 3 if (4 <= now_utc.month <= 10) else 2
         current_time = (now_utc + timedelta(hours=ukraine_offset)).strftime("%d.%m %H:%M:%S")
         
         start_process = time.time()
+        success = False
         
         with st.spinner('ШІ аналізує документацію...'):
-            try:
-                style = "тези" if answer_mode == "Стисла" else "детально з пунктами правил"
-                prompt = f"Контекст: {final_context}\n\nПитання: {query_text}\n\nІнструкція: {style}. Відповідай українською."
-                
-                response = model.generate_content(prompt)
-                process_time = int(time.time() - start_process)
-                
-                st.subheader("Відповідь:")
-                st.success(response.text)
-                
-                # ЗАПИС У СТАТИСТИКУ (З КЛЮЧЕМ ТА МОДЕЛЛЮ)
-                global_stats.append({
-                    "Дата/Час": current_time,
-                    "Запит": query_text,
-                    "Файл": selected_option[:25],
-                    "Ключ": active_key_name,      # ТУТ НАЗВА КЛЮЧА
-                    "Модель": active_model_name,  # ТУТ НАЗВА МОДЕЛІ
-                    "Час (сек)": process_time,
-                    "Статус": "Успішно ✅"
-                })
-                
-            except Exception as e:
-                error_msg = str(e)
-                if "429" in error_msg or "quota" in error_msg.lower():
-                    st.error("⚠️ Досягнуто ліміт безкоштовних запитів до ШІ. Будь ласка, зачекайте 1 хвилину.")
-                    status_log = "ЛІМІТ ❌"
-                else:
-                    st.error("Помилка запиту. Спробуйте ще раз.")
-                    status_log = "ПОМИЛКА ⚠️"
-                
-                global_stats.append({
-                    "Дата/Час": current_time, 
-                    "Запит": query_text, 
-                    "Ключ": active_key_name,
-                    "Статус": status_log,
-                    "Час (сек)": 0
-                })
+            # Складаємо список всіх доступних ключів у випадковому порядку
+            keys_to_try = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
+            random.shuffle(keys_to_try)
             
-            if len(global_stats) > 500: global_stats.pop(0)
+            for key_name in keys_to_try:
+                if key_name in st.secrets:
+                    try:
+                        # Спроба підключити конкретний ключ
+                        genai.configure(api_key=st.secrets[key_name])
+                        temp_model = genai.GenerativeModel('gemini-1.5-flash')
+                        
+                        style = "тези" if answer_mode == "Стисла" else "детально з пунктами правил"
+                        prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nІнструкція: {style}. Відповідай українською."
+                        
+                        response = temp_model.generate_content(prompt)
+                        process_time = int(time.time() - start_process)
+                        
+                        st.subheader("Відповідь:")
+                        st.success(response.text)
+                        
+                        # Запис у статистику
+                        global_stats.append({
+                            "Дата/Час": current_time,
+                            "Запит": user_query,
+                            "Файл": selected_option[:25],
+                            "Ключ": key_name,
+                            "Статус": "Успішно ✅",
+                            "Час (сек)": process_time
+                        })
+                        success = True
+                        break # ВИХОДИМО З ЦИКЛУ, БО ВІДПОВІДЬ ОТРИМАНО
+                        
+                    except Exception as e:
+                        # Якщо ключ не спрацював, просто йдемо до наступного в списку
+                        continue 
+            
+            if not success:
+                st.error("⚠️ Всі безкоштовні ключі наразі перевантажені. Будь ласка, зачекайте 1 хвилину.")
+                global_stats.append({
+                    "Дата/Час": current_time, "Запит": user_query, "Статус": "ВСІ ЛІМІТИ ❌"
+                })
 
 # --- 8. ПІДПИС РОЗРОБНИКА ---
 st.markdown("<br><hr><center><p style='color: gray;'>© 2026 Розробка: ПЧУ-5 Сергій ШИНКАРЕНКО</p></center>", unsafe_allow_html=True)
