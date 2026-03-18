@@ -1,6 +1,6 @@
 import streamlit as st
 import google.generativeai as genai
-from google.api_core.exceptions import ResourceExhausted
+from google.api_core.exceptions import ResourceExhausted, NotFound
 import PyPDF2
 import os
 import random
@@ -16,34 +16,22 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ОНОВЛЕНИЙ CSS для кнопок на всю ширину
+# CSS для кнопок на всю ширину
 st.markdown("""
     <style>
     .block-container { padding-top: 2rem !important; }
-    
-    /* Кнопки: на всю ширину, високі та з відступами */
     div[data-testid="stButton"] button {
         width: 100% !important; 
         height: 55px !important; 
-        margin-top: 12px !important; /* Відступ між кнопками */
+        margin-top: 12px !important;
         margin-bottom: 5px !important;
         font-size: 18px !important; 
         font-weight: bold !important; 
         border-radius: 12px !important;
         border: none !important;
-        display: block !important;
     }
-    
-    div[data-testid="stButton"] button[kind="primary"] { 
-        background-color: #28a745 !important; 
-        color: white !important; 
-    }
-    
-    div[data-testid="stButton"] button[kind="secondary"] { 
-        background-color: #6c757d !important; 
-        color: white !important; 
-    }
-
+    div[data-testid="stButton"] button[kind="primary"] { background-color: #28a745 !important; color: white !important; }
+    div[data-testid="stButton"] button[kind="secondary"] { background-color: #6c757d !important; color: white !important; }
     .main-title {
         text-align: center;
         font-size: 26px;
@@ -71,15 +59,13 @@ def get_cleaned_pdf_context(file_path):
             reader = PyPDF2.PdfReader(f)
             for page in reader.pages:
                 t = page.extract_text()
-                if t:
-                    text += t + " "
+                if t: text += t + " "
         text = re.sub(r'\s+', ' ', text).strip()
-        # Ліміт 750,000 символів (~300 сторінок)
-        return text[:750000]
+        return text[:750000] # Ліміт ~300 сторінок
     except Exception as e:
         return f"Помилка читання PDF: {e}"
 
-# --- 3. АДМІН-ПАНЕЛЬ (SIDEBAR) ---
+# --- 3. СЕСІЯ ТА АДМІНКА ---
 if "user_query" not in st.session_state:
     st.session_state.user_query = ""
 
@@ -98,7 +84,7 @@ with st.sidebar:
         else:
             st.info("Історія порожня.")
 
-# --- 4. ВИБІР ФАЙЛІВ ТА ПІДГОТОВКА КОНТЕКСТУ ---
+# --- 4. ПІДГОТОВКА ФАЙЛІВ ---
 available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
 if not available_files:
     st.warning("⚠️ Покладіть PDF файли в папку з додатком.")
@@ -110,15 +96,14 @@ answer_mode = st.radio("Тип відповіді:", ["Стисла (тези)",
 
 final_context = get_cleaned_pdf_context(selected_file)
 
-# --- 5. ПОШУК (КНОПКИ НА ВСЮ ШИРИНУ) ---
+# --- 5. ПОШУК ---
 st.write("---")
-user_query = st.text_input("Пошук", placeholder="Наприклад: Які терміни огляду колії?", key="user_query", label_visibility="collapsed")
+user_query = st.text_input("Пошук", placeholder="Введіть ваше питання...", key="user_query", label_visibility="collapsed")
 
-# Кнопки розміщені прямо в основному контейнері (не в колонках)
 search_button = st.button("🔍 Пошук", type="primary", use_container_width=True)
 st.button("🗑️ Очистити поле", type="secondary", on_click=clear_text, use_container_width=True)
 
-# --- 6. ЛОГІКА Gemini ---
+# --- 6. ЛОГІКА Gemini (ВИПРАВЛЕНО 404) ---
 if search_button:
     if not user_query.strip():
         st.warning("Введіть запитання.")
@@ -129,19 +114,21 @@ if search_button:
         current_time = now.strftime("%d.%m %H:%M:%S")
         
         success = False
-        with st.spinner('Аналізую всю інструкцію... зачекайте...'):
+        with st.spinner('ШІ аналізує інструкцію...'):
             keys = [k for k in ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"] if k in st.secrets]
             random.shuffle(keys)
             
             for key_id in keys:
                 try:
                     genai.configure(api_key=st.secrets[key_id])
+                    
+                    # КЛЮЧОВЕ ВИПРАВЛЕННЯ: додано models/ перед назвою
                     model = genai.GenerativeModel(
-                        model_name='gemini-1.5-flash',
-                        system_instruction="Ти — технічний експерт ПЧУ-5. Відповідай суворо за наданим текстом інструкції. Якщо інформації немає в тексті, так і скажи."
+                        model_name='models/gemini-1.5-flash',
+                        system_instruction="Ти — технічний експерт залізниці. Відповідай суворо за текстом наданої інструкції українською мовою."
                     )
                     
-                    prompt = f"Контекст (Інструкція): {final_context}\n\nПитання: {user_query}\n\nФормат відповіді: {answer_mode}. Мова: українська."
+                    prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nФормат відповіді: {answer_mode}."
                     
                     response = model.generate_content(prompt)
                     
@@ -157,14 +144,17 @@ if search_button:
                     success = True
                     break
                 
-                except ResourceExhausted:
-                    continue 
-                except Exception as e:
-                    st.error(f"Помилка: {e}")
+                except NotFound:
+                    st.error(f"⚠️ Помилка 404: Модель не знайдена на ключі {key_id}. Перевірте налаштування API.")
                     break
+                except ResourceExhausted:
+                    continue # Пробуємо наступний ключ, якщо закінчились ліміти
+                except Exception as e:
+                    st.error(f"Помилка при використанні {key_id}: {str(e)}")
+                    continue
             
-            if not success:
-                st.error("⚠️ Ліміти запитів вичерпані. Спробуйте через хвилину.")
+            if not success and not any(st.session_state.get('error_shown', False) for k in keys):
+                st.error("⚠️ На жаль, зараз ліміти запитів вичерпані для всіх ключів. Спробуйте через 1-2 хвилини.")
 
 # --- 7. ПІДПИС ---
 st.markdown(f"<br><hr><center><p style='color: gray;'>© {datetime.now().year} ПЧУ-5 Сергій ШИНКАРЕНКО</p></center>", unsafe_allow_html=True)
