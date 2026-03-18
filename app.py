@@ -26,11 +26,13 @@ st.markdown("""
         color: #1E1E1E;
     }
     
-    /* Кнопки на всю ширину */
-    div.stButton {
+    /* ПРИМУСОВЕ РОЗТЯГУВАННЯ КНОПОК (Максимальний пріоритет) */
+    .stButton {
         width: 100% !important;
     }
-    div.stButton > button {
+    
+    /* Селектор для самої кнопки всередині будь-якого контейнера */
+    div[data-testid="stButton"] > button {
         width: 100% !important;
         display: block !important;
         height: 55px !important;
@@ -39,15 +41,15 @@ st.markdown("""
         font-size: 18px !important;
         margin-top: 8px !important;
         border: none !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
     }
     
     /* Кольори кнопок */
-    div.stButton > button[kind="primary"] {
+    div[data-testid="stButton"] button[kind="primary"] {
         background-color: #28a745 !important;
         color: white !important;
     }
-    div.stButton > button[kind="secondary"] {
+    div[data-testid="stButton"] button[kind="secondary"] {
         background-color: #6c757d !important;
         color: white !important;
     }
@@ -85,16 +87,13 @@ def extract_text_from_pdf(file_path):
     except: return ""
 
 def get_relevant_context(query, full_text, top_k=15):
-    # Розбиття на частини (RAG)
     chunks = [full_text[i:i+3000] for i in range(0, len(full_text), 2500)]
     if not query: return "\n".join(chunks[:5])
-    
     query_words = query.lower().split()
     scored_chunks = []
     for chunk in chunks:
         score = sum(chunk.lower().count(word) for word in query_words)
         scored_chunks.append((score, chunk))
-    
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
     return "\n---\n".join([c[1] for c in scored_chunks[:top_k]])
 
@@ -120,7 +119,7 @@ with st.sidebar:
     st.header("🔐 Адмін-панель")
     access_code = st.text_input("Введіть код доступу:", type="password")
     if access_code == "3003": 
-        st.subheader("Історія поточної сесії")
+        st.subheader("Історія сесії")
         if st.session_state.stats_history:
             df = pd.DataFrame(st.session_state.stats_history)
             st.dataframe(df[::-1], use_container_width=True)
@@ -136,30 +135,28 @@ if not available_files:
 selected_option = st.selectbox("Оберіть інструкцію:", available_files)
 answer_mode = st.radio("Тип відповіді:", ["Стисла (тези)", "Розгорнута (детально)"], horizontal=True)
 
-# Зчитування (завдяки кешу працює миттєво при повторі)
 full_document_text = extract_text_from_pdf(selected_option)
 
-user_query = st.text_input("Пошук", placeholder="Введіть питання або номер білета...", key="query_field", label_visibility="collapsed")
+# Поле вводу
+user_query = st.text_input("Пошук", placeholder="Введіть питання...", key="query_field", label_visibility="collapsed")
 
+# Кнопки
 search_button = st.button("🔍 Пошук", type="primary")
-st.button("🗑️ Очистити поле", type="secondary", on_click=clear_search_field)
+clear_button = st.button("🗑️ Очистити поле", type="secondary", on_click=clear_search_field)
 
 # --- 7. ЛОГІКА ВІДПОВІДІ (З НОВИМ STATUS) ---
 if search_button:
     if not user_query:
         st.warning("Будь ласка, введіть запитання.")
     elif not full_document_text:
-        st.error("Помилка: не вдалося отримати текст із файлу.")
+        st.error("Помилка зчитування файлу.")
     else:
-        # ВИКОРИСТАННЯ ST.STATUS (Як ти просив)
         with st.status("Опрацювання запиту...", expanded=True) as status:
             st.write("📖 Зчитую інструкцію...")
-            # Текст уже в пам'яті завдяки кешу
-            
-            st.write("🔍 Шукаю потрібний розділ у документації...")
+            st.write("🔍 Шукаю потрібний розділ...")
             context = get_relevant_context(user_query, full_document_text)
+            st.write("🤖 Формую відповідь...")
             
-            st.write("🤖 Формую тези та відповідь...")
             style = "тези" if answer_mode == "Стисла (тези)" else "детально з пунктами правил"
             prompt = f"Контекст: {context}\n\nПитання: {user_query}\n\nСтиль: {style}. Українською."
             
@@ -168,27 +165,16 @@ if search_button:
             if answer:
                 status.update(label="✅ Відповідь сформована!", state="complete", expanded=False)
             else:
-                status.update(label="❌ Помилка аналізу", state="error", expanded=True)
+                status.update(label="❌ Помилка", state="error", expanded=True)
 
         if answer:
-            st.subheader("Результат пошуку:")
-            # Візуальна картка для відповіді
-            st.markdown(f"""
-                <div class="answer-card">
-                    {answer}
-                </div>
-            """, unsafe_allow_html=True)
+            st.subheader("Результат:")
+            st.markdown(f'<div class="answer-card">{answer}</div>', unsafe_allow_html=True)
             
-            # Статистика
             now = (datetime.now() + timedelta(hours=2)).strftime("%H:%M:%S")
             st.session_state.stats_history.append({
-                "Час": now, 
-                "Запит": user_query, 
-                "ШІ": used_model.replace("models/", ""), 
-                "Ключ": used_key
+                "Час": now, "Запит": user_query, 
+                "ШІ": used_model.replace("models/", ""), "Ключ": used_key
             })
-        else:
-            st.error("Не вдалося отримати відповідь від сервера. Спробуйте ще раз.")
 
-# --- 8. ПІДПИС ---
 st.markdown(f"<div style='text-align: center; color: gray; font-size: 10px; margin-top: 40px;'>© {datetime.now().year} ПЧУ-5 Сергій ШИНКАРЕНКО</div>", unsafe_allow_html=True)
