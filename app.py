@@ -104,25 +104,25 @@ final_context = final_context[:250000]
 st.write("---")
 user_query = st.text_input("Пошук", placeholder="Введіть ваше питання тут...", key="user_query", label_visibility="collapsed")
 
-# Кнопки в один ряд
 col1, col2 = st.columns(2)
 with col1:
     search_button = st.button("🔍 Пошук", type="primary", use_container_width=True)
 with col2:
     st.button("🗑️ Очистити", type="secondary", on_click=clear_text, use_container_width=True)
 
-# --- 6. ЛОГІКА ВІДПОВІДІ (З РОТАЦІЄЮ КЛЮЧІВ ПРИ ЗАПИТІ) ---
+# --- 6. ЛОГІКА ВІДПОВІДІ (З ЛАНЦЮЖКОМ ПЕРЕБОРУ КЛЮЧІВ) ---
 if (search_button) and final_context:
     if not user_query.strip():
         st.warning("Введіть питання.")
     else:
-        # Корекція часу для України (Березень = +2)
+        # Корекція часу для України (Березень = +2, Квітень-Жовтень = +3)
         now_utc = datetime.utcnow()
         ukraine_offset = 3 if (4 <= now_utc.month <= 10) else 2
         current_date_time = (now_utc + timedelta(hours=ukraine_offset)).strftime("%d.%m %H:%M:%S")
         
         start_process = time.time()
         success = False
+        tried_keys = [] # Список для збору назв спробованих ключів
         
         with st.spinner('ШІ аналізує документацію...'):
             # Список ключів для перебору
@@ -131,6 +131,7 @@ if (search_button) and final_context:
             
             for key_id in key_names:
                 if key_id in st.secrets:
+                    tried_keys.append(key_id) # Додаємо ключ до списку спроб
                     try:
                         # Конфігурація поточного ключа
                         genai.configure(api_key=st.secrets[key_id])
@@ -142,32 +143,38 @@ if (search_button) and final_context:
                         response = model.generate_content(prompt)
                         process_time = int(time.time() - start_process)
                         
-                        # Якщо ми тут — значить ключ спрацював!
+                        # Успіх!
                         st.subheader("Відповідь:")
                         st.success(response.text)
+                        
+                        # Створюємо рядок-ланцюжок (наприклад: "KEY3, KEY1 ✅")
+                        keys_chain = ", ".join(tried_keys) + " ✅"
                         
                         global_stats.append({
                             "Дата/Час": current_date_time,
                             "Запит": user_query,
                             "Файл": selected_option[:20],
-                            "Ключ": key_id,
+                            "Ключ": keys_chain,
                             "Режим": answer_mode,
                             "Час (сек)": process_time,
-                            "Статус": "Успішно ✅"
+                            "Статус": "Успішно"
                         })
                         success = True
-                        break # Зупиняємо перебір, відповідь отримана
+                        break # Зупиняємо перебір
                         
-                    except Exception as e:
-                        # Якщо помилка ліміту або інша — просто переходимо до наступного ключа
+                    except Exception:
+                        # Якщо ключ не спрацював, просто йдемо до наступного
                         continue 
             
             if not success:
                 st.error("⚠️ На жаль, всі безкоштовні ліміти запитів наразі вичерпані. Спробуйте через 1-2 хвилини.")
+                # Фіксуємо повний ланцюжок невдач (наприклад: "KEY2, KEY4, KEY1, KEY5, KEY3 ❌")
+                keys_chain = ", ".join(tried_keys) + " ❌"
                 global_stats.append({
                     "Дата/Час": current_date_time, 
                     "Запит": user_query, 
-                    "Статус": "ВСІ КЛЮЧІ ВИЧЕРПАНІ ❌",
+                    "Ключ": keys_chain, 
+                    "Статус": "ВСІ ЛІМІТИ ВИЧЕРПАНО",
                     "Час (сек)": 0
                 })
 
