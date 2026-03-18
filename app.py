@@ -10,57 +10,72 @@ from datetime import datetime, timedelta
 if "stats_history" not in st.session_state:
     st.session_state.stats_history = []
 
-# --- 2. КОНФІГУРАЦІЯ СТОРІНКИ ТА CSS ---
-st.set_page_config(page_title="Технічна бібліотека ПЧУ-5", layout="centered")
+# --- 2. КОНФІГУРАЦІЯ СТОРІНКИ ТА ПОСИЛЕНИЙ CSS ---
+st.set_page_config(page_title="Бібліотека ПЧУ-5", layout="centered")
 
 st.markdown("""
     <style>
-    /* 1. Напис та іконка підняті вгору */
+    /* 1. Повернення та корекція заголовка */
     .main-title {
         text-align: center;
         font-size: 22px;
         font-weight: bold;
-        margin-top: -70px; 
-        margin-bottom: 15px;
-        line-height: 1.2;
+        margin-top: -40px; 
+        margin-bottom: 20px;
+        line-height: 1.3;
         color: #1E1E1E;
+        display: block;
     }
     
-    /* 2. Кнопки на ВСЮ ширину */
-    div[data-testid="stButton"] {
-        width: 100%;
-    }
-    div[data-testid="stButton"] button {
+    /* 2. РОЗТЯГУВАННЯ КНОПОК НА ВСЮ ШИРИНУ */
+    /* Стиль для контейнера кнопки */
+    div.stButton {
         width: 100% !important;
-        display: block;
-        height: 50px !important;
-        border-radius: 10px !important;
+    }
+    
+    /* Стиль для самої кнопки всередині контейнера */
+    div.stButton > button {
+        width: 100% !important;
+        display: block !important;
+        height: 55px !important;
+        border-radius: 12px !important;
         font-weight: bold !important;
-        font-size: 16px !important;
-        margin-bottom: 10px !important;
+        font-size: 18px !important;
+        margin-top: 5px !important;
         border: none !important;
+        transition: 0.3s;
     }
     
     /* Кольори кнопок */
-    div[data-testid="stButton"] button[kind="primary"] {
+    /* Зелена кнопка (Пошук) */
+    div.stButton > button[kind="primary"] {
         background-color: #28a745 !important;
         color: white !important;
     }
-    div[data-testid="stButton"] button[kind="secondary"] {
+    div.stButton > button[kind="primary"]:hover {
+        background-color: #218838 !important;
+    }
+    
+    /* Сіра кнопка (Очистити) */
+    div.stButton > button[kind="secondary"] {
         background-color: #6c757d !important;
         color: white !important;
     }
+    div.stButton > button[kind="secondary"]:hover {
+        background-color: #5a6268 !important;
+    }
     
-    .block-container {
-        padding-top: 4.5rem !important;
+    /* Прибираємо стандартні обмеження ширини елементів Streamlit */
+    .element-container, .stMarkdown, .stTextInput {
+        width: 100% !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# Заголовок
+# Відображення заголовка
 st.markdown("<div class='main-title'>📚 РОЗУМНА ТЕХНІЧНА<br>БІБЛІОТЕКА ПЧУ-5</div>", unsafe_allow_html=True)
 
-# --- 3. ФУНКЦІЯ ОЧИЩЕННЯ ПОЛЯ (БЕЗ REBOOT) ---
+# --- 3. ФУНКЦІЯ ОЧИЩЕННЯ ПОЛЯ (БЕЗ ПЕРЕЗАВАНТАЖЕННЯ) ---
 def clear_search_field():
     st.session_state["query_field"] = ""
 
@@ -81,15 +96,15 @@ with st.sidebar:
     elif access_code:
         st.error("Невірний код")
 
-# --- 5. ПЕРЕБОР КЛЮЧІВ ТА МОДЕЛЕЙ ---
+# --- 5. ФУНКЦІЯ ШІ (ПЕРЕБОР КЛЮЧІВ) ---
 def get_ai_response(prompt):
     key_names = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
     random.shuffle(key_names)
-    
     for name in key_names:
         if name in st.secrets:
             try:
                 genai.configure(api_key=st.secrets[name])
+                # Автоматичний підбір моделі для уникнення 404
                 available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
                 model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
                 
@@ -117,34 +132,31 @@ def extract_text_from_pdf(file_path, max_pages=500):
 # --- 7. ОСНОВНИЙ ІНТЕРФЕЙС ---
 available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
 if not available_files:
-    st.warning("⚠️ Файли .pdf не знайдені.")
+    st.error("Файли .pdf не знайдені!")
     st.stop()
 
 selected_option = st.selectbox("Оберіть інструкцію:", available_files)
 answer_mode = st.radio("Тип відповіді:", ["Стисла (тези)", "Розгорнута (детально)"], horizontal=True)
 
-final_context = extract_text_from_pdf(selected_option, max_pages=500)
+# Отримання контенту
+final_context = extract_text_from_pdf(selected_option)
 final_context = final_context[:250000] 
 
-# ПОЛЕ ВВОДУ з прив'язаним ключем (Key)
+# Поле вводу з ключем для очищення
 user_query = st.text_input("Пошук", placeholder="Напишіть ваше питання...", key="query_field", label_visibility="collapsed")
 
-# Кнопки одна під одною
-search_button = st.button("🔍 Пошук", type="primary") # Зелена
-
-# Кнопка Очистити з функцією clear_search_field (БЕЗ перезавантаження)
-st.button("🗑️ Очистити поле", type="secondary", on_click=clear_search_field)
+# Кнопки одна під одною на всю ширину
+search_button = st.button("🔍 Пошук", type="primary")
+clear_button = st.button("🗑️ Очистити поле", type="secondary", on_click=clear_search_field)
 
 # --- 8. ЛОГІКА ВІДПОВІДІ ---
 if search_button:
     if not user_query:
-        st.warning("Введіть запитання.")
-    elif not final_context:
-        st.error("Документ порожній або не знайдений.")
+        st.warning("Будь ласка, введіть запитання.")
     else:
         with st.spinner('ШІ аналізує документацію...'):
             style = "тези" if answer_mode == "Стисла (тези)" else "детально з пунктами правил"
-            prompt = f"Контекст: {final_context}\n\nПитання: {user_query}\n\nІнструкція: {style}. Відповідай українською."
+            prompt = f"Ти технічний експерт. Контекст: {final_context}\n\nПитання: {user_query}\n\nВідповідь має бути: {style}. Відповідай українською."
             
             answer, used_model, used_key = get_ai_response(prompt)
             
@@ -152,16 +164,16 @@ if search_button:
                 st.subheader("Відповідь:")
                 st.success(answer)
                 
-                # Статистика
+                # Запис у статистику для адмінки
                 now = datetime.now() + timedelta(hours=2) 
                 st.session_state.stats_history.append({
                     "Час": now.strftime("%H:%M:%S"),
                     "Запит": user_query,
-                    "Версія ШІ": used_model.replace("models/", ""),
+                    "Модель": used_model.replace("models/", ""),
                     "Ключ": used_key
                 })
             else:
-                st.error("❌ Помилка API. Спробуйте пізніше.")
+                st.error("На жаль, не вдалося отримати відповідь. Перевірте ключі API.")
 
 # --- 9. ПІДПИС ---
 st.markdown(f"<div style='text-align: center; color: gray; font-size: 10px; margin-top: 30px;'>© {datetime.now().year} ПЧУ-5 Сергій ШИНКАРЕНКО</div>", unsafe_allow_html=True)
