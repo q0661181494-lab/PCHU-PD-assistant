@@ -28,14 +28,17 @@ st.markdown("""
     }
     
     /* 2. ПРИМУСОВЕ РОЗТЯГУВАННЯ КНОПОК НА ВЕСЬ ЕКРАН */
+    /* Знімаємо обмеження ширини внутрішніх блоків Streamlit */
     [data-testid="stVerticalBlock"] > div:has(div.stButton) {
         width: 100% !important;
     }
 
+    /* Стилізація контейнера кнопки */
     .stButton {
         width: 100% !important;
     }
 
+    /* Стилізація самої кнопки (максимальний пріоритет) */
     div[data-testid="stButton"] button {
         width: 100% !important;
         display: block !important;
@@ -50,19 +53,22 @@ st.markdown("""
         transition: all 0.2s ease-in-out !important;
     }
     
+    /* Кольори кнопок */
     div[data-testid="stButton"] button[kind="primary"] {
-        background-color: #28a745 !important;
+        background-color: #28a745 !important; /* Зелений */
         color: white !important;
     }
     div[data-testid="stButton"] button[kind="secondary"] {
-        background-color: #6c757d !important;
+        background-color: #6c757d !important; /* Сірий */
         color: white !important;
     }
 
+    /* Ефект при натисканні */
     div[data-testid="stButton"] button:active {
         transform: scale(0.98) !important;
     }
 
+    /* Картка відповіді */
     .answer-card {
         background-color: #ffffff;
         padding: 22px;
@@ -96,6 +102,7 @@ def extract_text_from_pdf(file_path):
     except: return ""
 
 def get_relevant_context(query, full_text, top_k=15):
+    # RAG: Розбиття на частини для точності
     chunks = [full_text[i:i+3000] for i in range(0, len(full_text), 2500)]
     if not query: return "\n".join(chunks[:5])
     
@@ -116,9 +123,11 @@ def get_ai_response(prompt):
         if name in st.secrets:
             try:
                 genai.configure(api_key=st.secrets[name])
-                model = genai.GenerativeModel('models/gemini-1.5-flash')
+                available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
+                model = genai.GenerativeModel(model_name)
                 response = model.generate_content(prompt)
-                return response.text, 'gemini-1.5-flash', name
+                return response.text, model_name, name
             except Exception:
                 continue 
     return None, None, None
@@ -144,22 +153,24 @@ if not available_files:
 selected_option = st.selectbox("Оберіть інструкцію:", available_files)
 answer_mode = st.radio("Тип відповіді:", ["Стисла (тези)", "Розгорнута (детально)"], horizontal=True)
 
+# Зчитування тексту з кешуванням
 full_document_text = extract_text_from_pdf(selected_option)
 
-# Поле вводу (Enter автоматично перезапускає скрипт і активує умову нижче)
+# Поле вводу
 user_query = st.text_input("Пошук", placeholder="Введіть ваше запитання...", key="query_field", label_visibility="collapsed")
 
+# Кнопки (одна під одною)
 search_button = st.button("🔍 Пошук", type="primary")
 clear_button = st.button("🗑️ Очистити поле", type="secondary", on_click=clear_search_field)
 
-# --- 7. ЛОГІКА ВІДПОВІДІ (Кнопка або Enter) ---
-if search_button or user_query:
+# --- 7. ЛОГІКА ВІДПОВІДІ З ЕЛЕМЕНТОМ STATUS ---
+if search_button:
     if not user_query:
-        if search_button:
-            st.warning("Будь ласка, введіть запитання.")
+        st.warning("Будь ласка, введіть запитання.")
     elif not full_document_text:
         st.error("Помилка зчитування файлу.")
     else:
+        # Покрокове відображення процесу
         with st.status("Обробка запиту...", expanded=True) as status:
             st.write("📖 Зчитую інструкцію...")
             st.write("🔍 Шукаю потрібний розділ у документації...")
@@ -176,15 +187,17 @@ if search_button or user_query:
             else:
                 status.update(label="❌ Виникла помилка", state="error", expanded=True)
 
+        # Вивід результату в гарній картці
         if answer:
             st.subheader("Результат:")
             st.markdown(f'<div class="answer-card">{answer}</div>', unsafe_allow_html=True)
             
+            # Статистика
             now = (datetime.now() + timedelta(hours=2)).strftime("%H:%M:%S")
             st.session_state.stats_history.append({
                 "Час": now, 
                 "Запит": user_query, 
-                "ШІ": used_model, 
+                "ШІ": used_model.replace("models/", ""), 
                 "Ключ": used_key
             })
 
