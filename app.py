@@ -10,7 +10,6 @@ st.set_page_config(page_title="Бібліотека ПЧУ-5", layout="centered"
 
 st.markdown("""
     <style>
-    /* 1. Головний заголовок */
     .main-title {
         text-align: center;
         font-size: 24px;
@@ -21,16 +20,12 @@ st.markdown("""
         color: #1E1E1E;
         display: block;
     }
-    
-    /* 2. ПРИМУСОВЕ РОЗТЯГУВАННЯ КНОПОК НА ВЕСЬ ЕКРАН */
     [data-testid="stVerticalBlock"] > div:has(div.stButton) {
         width: 100% !important;
     }
-
     .stButton {
         width: 100% !important;
     }
-
     div[data-testid="stButton"] button {
         width: 100% !important;
         display: block !important;
@@ -44,7 +39,6 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
         transition: all 0.2s ease-in-out !important;
     }
-    
     div[data-testid="stButton"] button[kind="primary"] {
         background-color: #28a745 !important;
         color: white !important;
@@ -53,11 +47,6 @@ st.markdown("""
         background-color: #6c757d !important;
         color: white !important;
     }
-
-    div[data-testid="stButton"] button:active {
-        transform: scale(0.98) !important;
-    }
-
     .answer-card {
         background-color: #ffffff;
         padding: 22px;
@@ -88,7 +77,8 @@ def extract_text_from_pdf(file_path):
                 t = page.extract_text()
                 if t: text += t + "\n"
         return text
-    except: return ""
+    except Exception as e:
+        return f"ERROR_PDF: {str(e)}"
 
 def get_relevant_context(query, full_text, top_k=15):
     chunks = [full_text[i:i+3000] for i in range(0, len(full_text), 2500)]
@@ -103,20 +93,28 @@ def get_relevant_context(query, full_text, top_k=15):
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
     return "\n---\n".join([c[1] for c in scored_chunks[:top_k]])
 
-# --- 3. РОБОТА З ШІ (API) ---
+# --- 3. РОБОТА З ШІ (API) З ДЕТАЛІЗАЦІЄЮ ПОМИЛОК ---
 def get_ai_response(prompt):
     key_names = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
     random.shuffle(key_names)
-    for name in key_names:
-        if name in st.secrets:
-            try:
-                genai.configure(api_key=st.secrets[name])
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                response = model.generate_content(prompt)
-                return response.text
-            except Exception:
-                continue 
-    return None
+    
+    active_keys = [k for k in key_names if k in st.secrets]
+    
+    if not active_keys:
+        return None, "ПОМИЛКА: Ключі API не знайдені в Secrets (TOML format error)."
+
+    last_error = ""
+    for name in active_keys:
+        try:
+            genai.configure(api_key=st.secrets[name])
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            response = model.generate_content(prompt)
+            return response.text, None
+        except Exception as e:
+            last_error = str(e)
+            continue 
+            
+    return None, f"ПОМИЛКА API ({name}): {last_error}"
 
 # --- 4. ОСНОВНИЙ ІНТЕРФЕЙС ---
 available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
@@ -129,10 +127,8 @@ answer_mode = st.radio("Тип відповіді:", ["Стисла (тези)",
 
 full_document_text = extract_text_from_pdf(selected_option)
 
-# Поле вводу
 user_query = st.text_input("Пошук", placeholder="Введіть ваше запитання...", key="query_field", label_visibility="collapsed")
 
-# Кнопки
 search_button = st.button("🔍 Пошук", type="primary")
 clear_button = st.button("🗑️ Очистити поле", type="secondary", on_click=clear_search_field)
 
@@ -140,24 +136,26 @@ clear_button = st.button("🗑️ Очистити поле", type="secondary", 
 if search_button:
     if not user_query:
         st.warning("Будь ласка, введіть запитання.")
+    elif "ERROR_PDF" in full_document_text:
+        st.error(f"Помилка зчитування файлу: {full_document_text}")
     elif not full_document_text:
-        st.error("Помилка зчитування файлу.")
+        st.error("Файл порожній або не знайдений.")
     else:
         with st.status("Обробка запиту...", expanded=True) as status:
             st.write("📖 Зчитую інструкцію...")
-            st.write("🔍 Шукаю потрібний розділ у документації...")
             context = get_relevant_context(user_query, full_document_text)
             
             st.write("🤖 Формую відповідь...")
             style = "тези" if answer_mode == "Стисла (тези)" else "детально з пунктами правил"
             prompt = f"Контекст: {context}\n\nПитання: {user_query}\n\nСтиль: {style}. Українською."
             
-            answer = get_ai_response(prompt)
+            answer, error_msg = get_ai_response(prompt)
             
             if answer:
                 status.update(label="✅ Аналіз завершено!", state="complete", expanded=False)
             else:
-                status.update(label="❌ Виникла помилка API", state="error", expanded=True)
+                status.update(label="❌ Виникла помилка", state="error", expanded=True)
+                st.error(error_msg)
 
         if answer:
             st.subheader("Результат:")
