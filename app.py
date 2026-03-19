@@ -123,18 +123,6 @@ def get_ai_response(prompt):
                 continue 
     return None, None, None
 
-# --- 5. БОКОВА ПАНЕЛЬ ---
-with st.sidebar:
-    st.header("🔐 Адмін-панель")
-    access_code = st.text_input("Введіть код доступу:", type="password")
-    if access_code == "3003": 
-        st.subheader("Історія поточної сесії")
-        if st.session_state.stats_history:
-            df = pd.DataFrame(st.session_state.stats_history)
-            st.dataframe(df[::-1], use_container_width=True)
-        else:
-            st.info("Запитів ще не було")
-
 # --- 6. ОСНОВНИЙ ІНТЕРФЕЙС ---
 available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
 if not available_files:
@@ -154,7 +142,6 @@ search_button = st.button("🔍 Пошук", type="primary")
 clear_button = st.button("🗑️ Очистити поле", type="secondary", on_click=clear_search_field)
 
 # --- 7. ЛОГІКА ВІДПОВІДІ (Кнопка АБО Enter) ---
-# У Streamlit натискання Enter у text_input повертає True для умови наявності тексту
 if search_button or (user_query and not st.session_state.get('last_query') == user_query):
     if not user_query:
         if search_button:
@@ -175,7 +162,6 @@ if search_button or (user_query and not st.session_state.get('last_query') == us
             
             if answer:
                 status.update(label="✅ Аналіз завершено!", state="complete", expanded=False)
-                # Запам'ятовуємо запит, щоб уникнути циклічного перенавантаження
                 st.session_state['last_query'] = user_query
             else:
                 status.update(label="❌ Виникла помилка", state="error", expanded=True)
