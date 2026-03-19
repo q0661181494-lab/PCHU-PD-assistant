@@ -93,7 +93,7 @@ def get_relevant_context(query, full_text, top_k=15):
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
     return "\n---\n".join([c[1] for c in scored_chunks[:top_k]])
 
-# --- 3. РОБОТА З ШІ (API) З ДЕТАЛІЗАЦІЄЮ ПОМИЛОК ---
+# --- 3. РОБОТА З ШІ (API) З ВИПРАВЛЕННЯМ ПОМИЛКИ 404 ---
 def get_ai_response(prompt):
     key_names = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
     random.shuffle(key_names)
@@ -101,15 +101,29 @@ def get_ai_response(prompt):
     active_keys = [k for k in key_names if k in st.secrets]
     
     if not active_keys:
-        return None, "ПОМИЛКА: Ключі API не знайдені в Secrets (TOML format error)."
+        return None, "ПОМИЛКА: Ключі API не знайдені в Secrets. Перевірте формат TOML."
 
     last_error = ""
     for name in active_keys:
         try:
             genai.configure(api_key=st.secrets[name])
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            response = model.generate_content(prompt)
-            return response.text, None
+            
+            # Спроба використати різні назви моделей, щоб уникнути помилки 404
+            model_variants = ['gemini-1.5-flash', 'models/gemini-1.5-flash', 'gemini-pro']
+            
+            response = None
+            for m_name in model_variants:
+                try:
+                    model = genai.GenerativeModel(m_name)
+                    response = model.generate_content(prompt)
+                    if response: break
+                except:
+                    continue
+            
+            if response:
+                return response.text, None
+            else:
+                last_error = "Жодна з моделей (flash/pro) не відповіла."
         except Exception as e:
             last_error = str(e)
             continue 
