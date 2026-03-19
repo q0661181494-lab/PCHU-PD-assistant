@@ -21,137 +21,108 @@ def save_to_google_sheets(row_data):
         updated_df = pd.concat([df, new_row], ignore_index=True)
         conn.update(spreadsheet=SPREADSHEET_ID, data=updated_df)
     except Exception as e:
-        st.sidebar.error(f"Помилка таблиці: {e}")
+        st.error(f"Помилка запису: {e}")
 
-# --- 2. ДОПОМІЖНІ ФУНКЦІЇ ---
-def get_user_ip():
-    try: return requests.get('https://ifconfig.me', timeout=2).text
-    except: return "Невідомо"
-
-@st.cache_data
-def extract_text_from_pdf(file_path):
-    text = ""
-    try:
-        with open(file_path, "rb") as f:
-            reader = PyPDF2.PdfReader(f)
-            for page in reader.pages:
-                t = page.extract_text()
-                if t: text += t + "\n"
-        return text
-    except: return ""
-
-def get_relevant_context(query, full_text, top_k=15):
-    if not query: return ""
-    chunks = [full_text[i:i+3000] for i in range(0, len(full_text), 2500)]
-    query_words = query.lower().split()
-    scored_chunks = []
-    for chunk in chunks:
-        score = sum(chunk.lower().count(word) for word in query_words)
-        scored_chunks.append((score, chunk))
-    scored_chunks.sort(key=lambda x: x[0], reverse=True)
-    return "\n---\n".join([c[1] for c in scored_chunks[:top_k]])
-
-def get_ai_response(prompt):
-    # Перевіряємо ключі KEY1, KEY2... які ви маєте додати в Secrets
-    keys = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
-    random.shuffle(keys)
-    for k_name in keys:
-        if k_name in st.secrets:
-            try:
-                genai.configure(api_key=st.secrets[k_name])
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                response = model.generate_content(prompt)
-                return response.text, "Gemini 1.5 Flash", k_name
-            except Exception as e:
-                continue
-    return None, None, None
-
-# --- 3. ІНТЕРФЕЙС ТА СТИЛІ ---
+# --- 2. СТИЛІ (Кнопки на всю ширину) ---
 st.set_page_config(page_title="Бібліотека ПЧУ-5", layout="centered")
 
-# ПОКРАЩЕНІ СТИЛІ ДЛЯ КНОПОК
 st.markdown("""
     <style>
     .main-title { text-align: center; font-size: 26px; font-weight: bold; margin-bottom: 25px; color: #1E1E1E; }
+    
     /* Кнопки на всю ширину */
     div.stButton > button {
         width: 100% !important;
+        display: block;
         height: 60px !important;
         border-radius: 12px !important;
         font-weight: bold !important;
-        font-size: 20px !important;
-        text-transform: uppercase;
-    }
-    /* Колір кнопки пошуку */
-    div.stButton > button[kind="primary"] {
-        background-color: #28a745 !important;
-        color: white !important;
+        font-size: 18px !important;
         border: none !important;
     }
-    /* Колір кнопки очистки */
-    div.stButton > button[kind="secondary"] {
-        background-color: #6c757d !important;
-        color: white !important;
-        border: none !important;
-    }
+    
+    /* Кольори */
+    button[kind="primary"] { background-color: #28a745 !important; color: white !important; }
+    button[kind="secondary"] { background-color: #6c757d !important; color: white !important; }
+    
     .answer-card { background-color: #f8f9fa; padding: 20px; border-radius: 15px; border-left: 8px solid #28a745; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
     </style>
     """, unsafe_allow_html=True)
 
-# БІЧНА ПАНЕЛЬ (SIDEBAR)
+# --- 3. БІЧНА ПАНЕЛЬ З ПАРОЛЕМ ---
 with st.sidebar:
-    st.header("⚙️ Адмін-панель")
-    st.info(f"Статус підключення: ✅ OK")
-    st.write(f"Ваш IP: `{get_user_ip()}`")
-    if st.button("🔄 Оновити дані"):
-        st.rerun()
+    st.header("🔐 Адмін-панель")
+    admin_password = st.text_input("Введіть пароль", type="password")
+    
+    # Пароль за замовчуванням "pchu5admin" (можете змінити в Secrets пізніше)
+    correct_password = st.secrets.get("ADMIN_PASSWORD", "1234") 
+    
+    if admin_password == correct_password:
+        st.success("Доступ дозволено")
+        st.write("### Статистика запитів")
+        try:
+            data = conn.read(spreadsheet=SPREADSHEET_ID, worksheet="0")
+            st.dataframe(data, use_container_width=True)
+        except:
+            st.warning("Не вдалося завантажити таблицю")
+    elif admin_password:
+        st.error("Невірний пароль")
+
+# --- 4. ОСНОВНА ЛОГІКА ---
+def get_ai_response(prompt):
+    keys = ["KEY1", "KEY2", "KEY3"]
+    random.shuffle(keys)
+    for k in keys:
+        if k in st.secrets:
+            try:
+                genai.configure(api_key=st.secrets[k])
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                return model.generate_content(prompt).text, "Gemini 1.5", k
+            except: continue
+    return None, None, None
+
+@st.cache_data
+def extract_text_from_pdf(file_path):
+    text = ""
+    with open(file_path, "rb") as f:
+        reader = PyPDF2.PdfReader(f)
+        for page in reader.pages:
+            text += page.extract_text() + "\n"
+    return text
 
 st.markdown("<div class='main-title'>📚 РОЗУМНА ТЕХНІЧНА<br>БІБЛІОТЕКА ПЧУ-5</div>", unsafe_allow_html=True)
 
-# Основна логіка
 available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
-if not available_files:
-    st.error("Завантажте PDF-інструкції в репозиторій GitHub!")
-    st.stop()
-
 selected_file = st.selectbox("Оберіть інструкцію:", available_files)
 answer_mode = st.radio("Формат відповіді:", ["Стисла", "Розгорнута"], horizontal=True)
 
 if "query_field" not in st.session_state: st.session_state.query_field = ""
+user_query = st.text_input("Пошук", value=st.session_state.query_field, placeholder="Введіть запитання...", label_visibility="collapsed")
 
-user_query = st.text_input("Пошук", value=st.session_state.query_field, placeholder="Введіть ваше запитання...", label_visibility="collapsed")
+col1, col2 = st.columns(1) # Для гарантії ширини кнопок у стовпці
 
-if st.button("🔍 Знайди відповідь", type="primary"):
-    if not user_query:
-        st.warning("Введіть запитання!")
-    else:
-        start_time = time.time()
-        with st.status("Шукаю інформацію в інструкції...", expanded=False) as status:
-            full_text = extract_text_from_pdf(selected_file)
-            context = get_relevant_context(user_query, full_text)
-            
-            style = "тезисно" if answer_mode == "Стисла" else "детально з пунктами"
-            prompt = f"Контекст із залізничної інструкції: {context}\n\nПитання: {user_query}\n\nВідповідай українською, стиль: {style}."
-            
-            answer, model_name, key_used = get_ai_response(prompt)
-            
-            if answer:
-                proc_time = round(time.time() - start_time, 2)
-                status.update(label=f"✅ Готово! ({proc_time} сек)", state="complete")
-                st.markdown(f'<div class="answer-card">{answer}</div>', unsafe_allow_html=True)
+with col1:
+    if st.button("🔍 Знайди відповідь", type="primary"):
+        if not user_query:
+            st.warning("Введіть запитання!")
+        else:
+            with st.status("Шукаю в документах...") as status:
+                full_text = extract_text_from_pdf(selected_file)
+                style = "тезисно" if answer_mode == "Стисла" else "детально"
+                prompt = f"Текст: {full_text[:10000]}\n\nПитання: {user_query}\n\nСтиль: {style}. Мова: українська."
                 
-                save_to_google_sheets([
-                    (datetime.now() + timedelta(hours=2)).strftime("%d.%m.%Y %H:%M:%S"),
-                    get_user_ip(),
-                    user_query,
-                    proc_time,
-                    model_name,
-                    key_used,
-                    "Комп'ютер/Моб"
-                ])
-            else:
-                status.update(label="❌ Помилка: Ключі ШІ не знайдено або вони не працюють", state="error")
-                st.error("Будь ласка, додайте KEY1 у налаштування Secrets (Streamlit Cloud).")
+                answer, model_name, key_used = get_ai_response(prompt)
+                
+                if answer:
+                    status.update(label="✅ Готово!", state="complete")
+                    st.markdown(f'<div class="answer-card">{answer}</div>', unsafe_allow_html=True)
+                    save_to_google_sheets([
+                        (datetime.now() + timedelta(hours=2)).strftime("%d.%m.%Y %H:%M:%S"),
+                        "User", user_query, "---", model_name, key_used, "Device"
+                    ])
+                else:
+                    status.update(label="❌ Помилка ключа ШІ", state="error")
+                    st.error("Додайте KEY1 у Secrets!")
 
 if st.button("🗑️ Очистити пошук", type="secondary"):
     st.session_state.query_field = ""
