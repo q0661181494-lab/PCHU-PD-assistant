@@ -3,4 +3,4 @@ google-generativeai
 PyPDF2
 pandas
 requests
-gspread-streamlit
+st-gsheets-connection
