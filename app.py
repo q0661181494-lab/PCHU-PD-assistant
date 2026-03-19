@@ -5,10 +5,11 @@ import os
 import random
 import pandas as pd
 from datetime import datetime, timedelta
+from streamlit_gsheets import GSheetsConnection
 
-# --- 1. ІНІЦІАЛІЗАЦІЯ СТАТИСТИКИ ---
-if "stats_history" not in st.session_state:
-    st.session_state.stats_history = []
+# --- 1. ПІДКЛЮЧЕННЯ ДО ТАБЛИЦЬ ---
+SPREADSHEET_ID = "1OINic0CgdHAXhegjbHgQdflbTL0DnpHJDj7EwA1N1Tw"
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- 2. КОНФІГУРАЦІЯ СТОРІНКИ ТА ПРИМУСОВИЙ CSS ---
 st.set_page_config(page_title="Бібліотека ПЧУ-5", layout="centered")
@@ -28,17 +29,14 @@ st.markdown("""
     }
     
     /* 2. ПРИМУСОВЕ РОЗТЯГУВАННЯ КНОПОК НА ВЕСЬ ЕКРАН */
-    /* Знімаємо обмеження ширини внутрішніх блоків Streamlit */
     [data-testid="stVerticalBlock"] > div:has(div.stButton) {
         width: 100% !important;
     }
 
-    /* Стилізація контейнера кнопки */
     .stButton {
         width: 100% !important;
     }
 
-    /* Стилізація самої кнопки (максимальний пріоритет) */
     div[data-testid="stButton"] button {
         width: 100% !important;
         display: block !important;
@@ -53,22 +51,19 @@ st.markdown("""
         transition: all 0.2s ease-in-out !important;
     }
     
-    /* Кольори кнопок */
     div[data-testid="stButton"] button[kind="primary"] {
-        background-color: #28a745 !important; /* Зелений */
+        background-color: #28a745 !important;
         color: white !important;
     }
     div[data-testid="stButton"] button[kind="secondary"] {
-        background-color: #6c757d !important; /* Сірий */
+        background-color: #6c757d !important;
         color: white !important;
     }
 
-    /* Ефект при натисканні */
     div[data-testid="stButton"] button:active {
         transform: scale(0.98) !important;
     }
 
-    /* Картка відповіді */
     .answer-card {
         background-color: #ffffff;
         padding: 22px;
@@ -102,16 +97,13 @@ def extract_text_from_pdf(file_path):
     except: return ""
 
 def get_relevant_context(query, full_text, top_k=15):
-    # RAG: Розбиття на частини для точності
     chunks = [full_text[i:i+3000] for i in range(0, len(full_text), 2500)]
     if not query: return "\n".join(chunks[:5])
-    
     query_words = query.lower().split()
     scored_chunks = []
     for chunk in chunks:
         score = sum(chunk.lower().count(word) for word in query_words)
         scored_chunks.append((score, chunk))
-    
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
     return "\n---\n".join([c[1] for c in scored_chunks[:top_k]])
 
@@ -123,26 +115,25 @@ def get_ai_response(prompt):
         if name in st.secrets:
             try:
                 genai.configure(api_key=st.secrets[name])
-                available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
-                model = genai.GenerativeModel(model_name)
+                model = genai.GenerativeModel('gemini-1.5-flash')
                 response = model.generate_content(prompt)
-                return response.text, model_name, name
+                return response.text, "gemini-1.5-flash", name
             except Exception:
                 continue 
     return None, None, None
 
-# --- 5. БОКОВА ПАНЕЛЬ ---
+# --- 5. БОКОВА ПАНЕЛЬ (АДМІНКА) ---
 with st.sidebar:
     st.header("🔐 Адмін-панель")
     access_code = st.text_input("Введіть код доступу:", type="password")
     if access_code == "3003": 
-        st.subheader("Історія поточної сесії")
-        if st.session_state.stats_history:
-            df = pd.DataFrame(st.session_state.stats_history)
-            st.dataframe(df[::-1], use_container_width=True)
-        else:
-            st.info("Запитів ще не було")
+        st.subheader("Статистика (Google Sheets)")
+        try:
+            # Читаємо Аркуш1
+            df = conn.read(spreadsheet=SPREADSHEET_ID, worksheet="Аркуш1")
+            st.dataframe(df.dropna(how="all")[::-1], use_container_width=True)
+        except Exception as e:
+            st.info("Таблиця поки порожня або недоступна")
 
 # --- 6. ОСНОВНИЙ ІНТЕРФЕЙС ---
 available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
@@ -153,29 +144,23 @@ if not available_files:
 selected_option = st.selectbox("Оберіть інструкцію:", available_files)
 answer_mode = st.radio("Тип відповіді:", ["Стисла (тези)", "Розгорнута (детально)"], horizontal=True)
 
-# Зчитування тексту з кешуванням
 full_document_text = extract_text_from_pdf(selected_option)
 
-# Поле вводу
 user_query = st.text_input("Пошук", placeholder="Введіть ваше запитання...", key="query_field", label_visibility="collapsed")
 
-# Кнопки (одна під одною)
 search_button = st.button("🔍 Пошук", type="primary")
 clear_button = st.button("🗑️ Очистити поле", type="secondary", on_click=clear_search_field)
 
-# --- 7. ЛОГІКА ВІДПОВІДІ З ЕЛЕМЕНТОМ STATUS ---
+# --- 7. ЛОГІКА ВІДПОВІДІ ---
 if search_button:
     if not user_query:
         st.warning("Будь ласка, введіть запитання.")
     elif not full_document_text:
         st.error("Помилка зчитування файлу.")
     else:
-        # Покрокове відображення процесу
         with st.status("Обробка запиту...", expanded=True) as status:
             st.write("📖 Зчитую інструкцію...")
-            st.write("🔍 Шукаю потрібний розділ у документації...")
             context = get_relevant_context(user_query, full_document_text)
-            
             st.write("🤖 Формую відповідь...")
             style = "тези" if answer_mode == "Стисла (тези)" else "детально з пунктами правил"
             prompt = f"Контекст: {context}\n\nПитання: {user_query}\n\nСтиль: {style}. Українською."
@@ -184,22 +169,20 @@ if search_button:
             
             if answer:
                 status.update(label="✅ Аналіз завершено!", state="complete", expanded=False)
+                st.subheader("Результат:")
+                st.markdown(f'<div class="answer-card">{answer}</div>', unsafe_allow_html=True)
+                
+                # --- ЗАПИС У GOOGLE ТАБЛИЦЮ ---
+                try:
+                    now = (datetime.now() + timedelta(hours=2)).strftime("%d.%m.%Y %H:%M:%S")
+                    new_data = pd.DataFrame([{"Час": now, "Запит": user_query, "ШІ": used_model, "Ключ": used_key}])
+                    old_df = conn.read(spreadsheet=SPREADSHEET_ID, worksheet="Аркуш1")
+                    updated_df = pd.concat([old_df.dropna(how="all"), new_data], ignore_index=True)
+                    conn.update(spreadsheet=SPREADSHEET_ID, worksheet="Аркуш1", data=updated_df)
+                except:
+                    pass 
             else:
-                status.update(label="❌ Виникла помилка", state="error", expanded=True)
-
-        # Вивід результату в гарній картці
-        if answer:
-            st.subheader("Результат:")
-            st.markdown(f'<div class="answer-card">{answer}</div>', unsafe_allow_html=True)
-            
-            # Статистика
-            now = (datetime.now() + timedelta(hours=2)).strftime("%H:%M:%S")
-            st.session_state.stats_history.append({
-                "Час": now, 
-                "Запит": user_query, 
-                "ШІ": used_model.replace("models/", ""), 
-                "Ключ": used_key
-            })
+                status.update(label="❌ Помилка API", state="error", expanded=True)
 
 # --- 8. ПІДПИС ---
 st.markdown(f"<div style='text-align: center; color: gray; font-size: 10px; margin-top: 40px;'>© {datetime.now().year} ПЧУ-5 Сергій ШИНКАРЕНКО</div>", unsafe_allow_html=True)
