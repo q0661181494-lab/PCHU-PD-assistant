@@ -3,9 +3,14 @@ import google.generativeai as genai
 import PyPDF2
 import os
 import random
-from datetime import datetime
+import pandas as pd
+from datetime import datetime, timedelta
 
-# --- 1. КОНФІГУРАЦІЯ СТОРІНКИ ---
+# --- 1. ІНІЦІАЛІЗАЦІЯ СТАТИСТИКИ ---
+if "stats_history" not in st.session_state:
+    st.session_state.stats_history = []
+
+# --- 2. КОНФІГУРАЦІЯ СТОРІНКИ ТА ПРИМУСОВИЙ CSS ---
 st.set_page_config(page_title="Бібліотека ПЧУ-5", layout="centered")
 
 st.markdown("""
@@ -63,7 +68,7 @@ st.markdown("""
 
 st.markdown("<div class='main-title'>📚 РОЗУМНА ТЕХНІЧНА<br>БІБЛІОТЕКА ПЧУ-5</div>", unsafe_allow_html=True)
 
-# --- 2. ДОПОМІЖНІ ФУНКЦІЇ ---
+# --- 3. ДОПОМІЖНІ ФУНКЦІЇ ---
 def clear_search_field():
     st.session_state["query_field"] = ""
 
@@ -77,8 +82,7 @@ def extract_text_from_pdf(file_path):
                 t = page.extract_text()
                 if t: text += t + "\n"
         return text
-    except Exception as e:
-        return f"ERROR_PDF: {str(e)}"
+    except: return ""
 
 def get_relevant_context(query, full_text, top_k=15):
     chunks = [full_text[i:i+3000] for i in range(0, len(full_text), 2500)]
@@ -91,48 +95,52 @@ def get_relevant_context(query, full_text, top_k=15):
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
     return "\n---\n".join([c[1] for c in scored_chunks[:top_k]])
 
-# --- 3. ФУНКЦІЯ ЗАПИТУ РОБОЧОЇ МОДЕЛИ ТА ВІДПОВІДІ ---
+# --- 4. ФУНКЦІЯ ЗАПИТУ РОБОЧОЇ МОДЕЛІ ТА ВІДПОВІДІ ---
 def get_ai_response(prompt):
     key_names = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
     random.shuffle(key_names)
     
-    # Фільтруємо наявні ключі в Secrets
     active_keys = [k for k in key_names if k in st.secrets]
-    
     if not active_keys:
-        return None, "ПОМИЛКА: Ключі не знайдені. Перевірте Secrets (має бути формат KEY1 = '...')"
+        return None, "Помилка: Ключі не знайдені в Secrets.", "N/A"
 
-    last_error = ""
     for name in active_keys:
         try:
             genai.configure(api_key=st.secrets[name])
             
-            # --- ЗАПИТ РОБОЧИХ МОДЕЛЕЙ У GOOGLE ---
-            # Отримуємо список усіх моделей, які підтримують генерацію контенту
+            # Запит списку доступних моделей
             models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
             
-            if not models:
-                continue
-                
-            # Вибираємо найкращу доступну (flash або pro)
-            target_model = 'models/gemini-1.5-flash'
-            if target_model not in models:
-                target_model = models[0] # беремо будь-яку робочу, якщо flash немає
+            # Вибір моделі (пріоритет на flash 1.5)
+            target = 'models/gemini-1.5-flash'
+            model_to_use = target if target in models else models[0]
             
-            model = genai.GenerativeModel(target_model)
+            model = genai.GenerativeModel(model_to_use)
             response = model.generate_content(prompt)
-            return response.text, None
             
+            return response.text, None, model_to_use.replace("models/", "")
         except Exception as e:
-            last_error = str(e)
-            continue 
+            last_err = str(e)
+            continue
             
-    return None, f"ПОМИЛКА API ({name}): {last_error}"
+    return None, f"Всі ключі відхилені. Остання помилка: {last_err}", "Error"
 
-# --- 4. ІНТЕРФЕЙС ---
+# --- 5. БОКОВА ПАНЕЛЬ (ТАБЛИЦЯ) ---
+with st.sidebar:
+    st.header("🔐 Адмін-панель")
+    access_code = st.text_input("Введіть код доступу:", type="password")
+    if access_code == "3003": 
+        st.subheader("📊 Історія запитів")
+        if st.session_state.stats_history:
+            df = pd.DataFrame(st.session_state.stats_history)
+            st.dataframe(df[::-1], use_container_width=True, hide_index=True)
+        else:
+            st.info("Запитів ще не було")
+
+# --- 6. ОСНОВНИЙ ІНТЕРФЕЙС ---
 available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
 if not available_files:
-    st.error("Файли .pdf не знайдені в папці проєкту!")
+    st.error("Файли не знайдені!")
     st.stop()
 
 selected_option = st.selectbox("Оберіть інструкцію:", available_files)
@@ -145,32 +153,39 @@ user_query = st.text_input("Пошук", placeholder="Введіть ваше з
 search_button = st.button("🔍 Пошук", type="primary")
 clear_button = st.button("🗑️ Очистити поле", type="secondary", on_click=clear_search_field)
 
-# --- 5. ЛОГІКА ВІДПОВІДІ ---
+# --- 7. ЛОГІКА ВІДПОВІДІ ---
 if search_button:
     if not user_query:
         st.warning("Введіть запитання.")
-    elif "ERROR_PDF" in full_document_text:
-        st.error(f"Помилка PDF: {full_document_text}")
+    elif not full_document_text:
+        st.error("Помилка зчитування файлу.")
     else:
-        with st.status("Триває обробка...", expanded=True) as status:
-            st.write("📖 Аналізую документ...")
+        with st.status("Обробка...", expanded=True) as status:
+            st.write("📖 Зчитую документ...")
             context = get_relevant_context(user_query, full_document_text)
             
-            st.write("🤖 Запитую робочу модель у Google...")
+            st.write("🤖 Пошук робочої моделі...")
             style = "тези" if answer_mode == "Стисла (тези)" else "детально з пунктами правил"
             prompt = f"Контекст: {context}\n\nПитання: {user_query}\n\nСтиль: {style}. Українською."
             
-            answer, error_msg = get_ai_response(prompt)
+            answer, err, used_model = get_ai_response(prompt)
             
             if answer:
                 status.update(label="✅ Аналіз завершено!", state="complete", expanded=False)
+                # Запис у статистику (таблицю)
+                now = (datetime.now() + timedelta(hours=2)).strftime("%H:%M:%S")
+                st.session_state.stats_history.append({
+                    "Час": now, 
+                    "Запит": user_query[:30] + "...", 
+                    "Модель": used_model
+                })
             else:
-                status.update(label="❌ Помилка моделі", state="error", expanded=True)
-                st.error(error_msg)
+                status.update(label="❌ Помилка", state="error", expanded=True)
+                st.error(err)
 
         if answer:
             st.subheader("Результат:")
             st.markdown(f'<div class="answer-card">{answer}</div>', unsafe_allow_html=True)
 
-# --- 6. ПІДПИС ---
+# --- 8. ПІДПИС ---
 st.markdown(f"<div style='text-align: center; color: gray; font-size: 10px; margin-top: 40px;'>© {datetime.now().year} ПЧУ-5 Сергій ШИНКАРЕНКО</div>", unsafe_allow_html=True)
