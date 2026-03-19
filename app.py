@@ -4,144 +4,202 @@ import PyPDF2
 import os
 import random
 import pandas as pd
-import csv
 from datetime import datetime, timedelta
-import io
 
-# Назва файлу для спільної статистики
-LOG_FILE = "global_usage_stats.csv"
+# --- 1. ІНІЦІАЛІЗАЦІЯ СТАТИСТИКИ ---
+if "stats_history" not in st.session_state:
+    st.session_state.stats_history = []
 
-# --- 1. ФУНКЦІЇ ДЛЯ РОБОТИ ЗІ СТАТИСТИКОЮ ---
-def save_to_log(user_query, model_name, file_name, key_name):
-    """Записує дані про запит у CSV файл на сервері"""
-    now = (datetime.now() + timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
-    file_exists = os.path.isfile(LOG_FILE)
-    
-    with open(LOG_FILE, mode='a', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow(["Час", "Інструкція", "Запит", "Модель", "Ключ"])
-        writer.writerow([now, file_name, user_query[:50], model_name, key_name])
-
-def load_log():
-    """Зчитує історію запитів"""
-    if os.path.exists(LOG_FILE):
-        try:
-            return pd.read_csv(LOG_FILE)
-        except:
-            return pd.DataFrame(columns=["Час", "Інструкція", "Запит", "Модель", "Ключ"])
-    return pd.DataFrame(columns=["Час", "Інструкція", "Запит", "Модель", "Ключ"])
-
-# --- 2. КОНФІГУРАЦІЯ ІНТЕРФЕЙСУ ---
+# --- 2. КОНФІГУРАЦІЯ СТОРІНКИ ТА ПРИМУСОВИЙ CSS ---
 st.set_page_config(page_title="Бібліотека ПЧУ-5", layout="centered")
 
 st.markdown("""
     <style>
-    .main-title { text-align: center; font-size: 26px; font-weight: bold; margin-top: -40px; margin-bottom: 25px; color: #1E1E1E; }
-    [data-testid="stVerticalBlock"] > div:has(div.stButton) { width: 100% !important; }
-    .stButton { width: 100% !important; }
-    div[data-testid="stButton"] button { width: 100% !important; height: 55px !important; border-radius: 12px !important; font-weight: bold !important; font-size: 18px !important; }
-    div[data-testid="stButton"] button[kind="primary"] { background-color: #28a745 !important; color: white !important; }
-    div[data-testid="stButton"] button[kind="secondary"] { background-color: #6c757d !important; color: white !important; }
-    .answer-card { background-color: #ffffff; padding: 22px; border-radius: 15px; border-left: 6px solid #28a745; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-top: 20px; font-size: 16px; line-height: 1.6; }
+    /* 1. Головний заголовок */
+    .main-title {
+        text-align: center;
+        font-size: 24px;
+        font-weight: bold;
+        margin-top: -40px; 
+        margin-bottom: 25px;
+        line-height: 1.2;
+        color: #1E1E1E;
+        display: block;
+    }
+    
+    /* 2. ПРИМУСОВЕ РОЗТЯГУВАННЯ КНОПОК НА ВЕСЬ ЕКРАН */
+    /* Знімаємо обмеження ширини внутрішніх блоків Streamlit */
+    [data-testid="stVerticalBlock"] > div:has(div.stButton) {
+        width: 100% !important;
+    }
+
+    /* Стилізація контейнера кнопки */
+    .stButton {
+        width: 100% !important;
+    }
+
+    /* Стилізація самої кнопки (максимальний пріоритет) */
+    div[data-testid="stButton"] button {
+        width: 100% !important;
+        display: block !important;
+        height: 55px !important;
+        border-radius: 12px !important;
+        font-weight: bold !important;
+        font-size: 18px !important;
+        margin-top: 8px !important;
+        margin-bottom: 8px !important;
+        border: none !important;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
+        transition: all 0.2s ease-in-out !important;
+    }
+    
+    /* Кольори кнопок */
+    div[data-testid="stButton"] button[kind="primary"] {
+        background-color: #28a745 !important; /* Зелений */
+        color: white !important;
+    }
+    div[data-testid="stButton"] button[kind="secondary"] {
+        background-color: #6c757d !important; /* Сірий */
+        color: white !important;
+    }
+
+    /* Ефект при натисканні */
+    div[data-testid="stButton"] button:active {
+        transform: scale(0.98) !important;
+    }
+
+    /* Картка відповіді */
+    .answer-card {
+        background-color: #ffffff;
+        padding: 22px;
+        border-radius: 15px;
+        border-left: 6px solid #28a745;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        color: #1E1E1E;
+        line-height: 1.6;
+        margin-top: 20px;
+        font-size: 16px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
 st.markdown("<div class='main-title'>📚 РОЗУМНА ТЕХНІЧНА<br>БІБЛІОТЕКА ПЧУ-5</div>", unsafe_allow_html=True)
 
-# --- 3. ЛОГІКА РОБОТИ З ШІ ---
+# --- 3. ДОПОМІЖНІ ФУНКЦІЇ ---
+def clear_search_field():
+    st.session_state["query_field"] = ""
+
+@st.cache_data
+def extract_text_from_pdf(file_path):
+    text = ""
+    try:
+        with open(file_path, "rb") as f:
+            reader = PyPDF2.PdfReader(f)
+            for page in reader.pages:
+                t = page.extract_text()
+                if t: text += t + "\n"
+        return text
+    except: return ""
+
+def get_relevant_context(query, full_text, top_k=15):
+    # RAG: Розбиття на частини для точності
+    chunks = [full_text[i:i+3000] for i in range(0, len(full_text), 2500)]
+    if not query: return "\n".join(chunks[:5])
+    
+    query_words = query.lower().split()
+    scored_chunks = []
+    for chunk in chunks:
+        score = sum(chunk.lower().count(word) for word in query_words)
+        scored_chunks.append((score, chunk))
+    
+    scored_chunks.sort(key=lambda x: x[0], reverse=True)
+    return "\n---\n".join([c[1] for c in scored_chunks[:top_k]])
+
+# --- 4. РОБОТА З ШІ (API) ---
 def get_ai_response(prompt):
     key_names = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
     random.shuffle(key_names)
-    active_keys = [k for k in key_names if k in st.secrets]
-    
-    if not active_keys:
-        return None, "Помилка: Ключі API не знайдено.", "N/A", "N/A"
+    for name in key_names:
+        if name in st.secrets:
+            try:
+                genai.configure(api_key=st.secrets[name])
+                available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(prompt)
+                return response.text, model_name, name
+            except Exception:
+                continue 
+    return None, None, None
 
-    last_error = ""
-    for name in active_keys:
-        try:
-            genai.configure(api_key=st.secrets[name])
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            
-            target = 'models/gemini-1.5-flash'
-            chosen_model_name = target if target in available_models else available_models[0]
-            
-            model = genai.GenerativeModel(chosen_model_name)
-            response = model.generate_content(prompt)
-            return response.text, None, chosen_model_name.replace("models/", ""), name
-        except Exception as e:
-            last_error = str(e)
-            continue
-            
-    return None, f"Помилка: {last_error}", "Error", "None"
-
-# --- 4. БОКОВА ПАНЕЛЬ (АДМІНІСТРУВАННЯ ТА СКАЧУВАННЯ) ---
+# --- 5. БОКОВА ПАНЕЛЬ ---
 with st.sidebar:
     st.header("🔐 Адмін-панель")
-    admin_code = st.text_input("Код доступу:", type="password")
-    
-    if admin_code == "3003":
-        st.subheader("📊 Глобальна статистика")
-        df_log = load_log()
-        if not df_log.empty:
-            st.dataframe(df_log[::-1], use_container_width=True, hide_index=True)
-            
-            # --- ФУНКЦІЯ СКАЧУВАННЯ ---
-            csv_data = df_log.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Скачати історію (CSV)",
-                data=csv_data,
-                file_name=f"stats_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv",
-            )
-            
-            if st.button("🗑️ Видалити історію"):
-                if os.path.exists(LOG_FILE): os.remove(LOG_FILE)
-                st.rerun()
+    access_code = st.text_input("Введіть код доступу:", type="password")
+    if access_code == "3003": 
+        st.subheader("Історія поточної сесії")
+        if st.session_state.stats_history:
+            df = pd.DataFrame(st.session_state.stats_history)
+            st.dataframe(df[::-1], use_container_width=True)
         else:
-            st.info("Історія порожня.")
+            st.info("Запитів ще не було")
 
-# --- 5. ОСНОВНИЙ ФУНКЦІОНАЛ ---
-files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
-if not files:
-    st.error("Завантажте PDF-файли.")
+# --- 6. ОСНОВНИЙ ІНТЕРФЕЙС ---
+available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
+if not available_files:
+    st.error("Файли не знайдені!")
     st.stop()
 
-selected_pdf = st.selectbox("Оберіть інструкцію:", files)
-mode = st.radio("Формат відповіді:", ["Стисло (тези)", "Розгорнуто"], horizontal=True)
+selected_option = st.selectbox("Оберіть інструкцію:", available_files)
+answer_mode = st.radio("Тип відповіді:", ["Стисла (тези)", "Розгорнута (детально)"], horizontal=True)
 
-@st.cache_data
-def load_pdf_text(path):
-    try:
-        reader = PyPDF2.PdfReader(path)
-        return " ".join([page.extract_text() for page in reader.pages if page.extract_text()])
-    except: return ""
+# Зчитування тексту з кешуванням
+full_document_text = extract_text_from_pdf(selected_option)
 
-pdf_text = load_pdf_text(selected_pdf)
-user_input = st.text_input("Запитання:", placeholder="Наприклад: Вимоги безпеки...")
+# Поле вводу
+user_query = st.text_input("Пошук", placeholder="Введіть ваше запитання...", key="query_field", label_visibility="collapsed")
 
-btn_search = st.button("🔍 Пошук", type="primary")
+# Кнопки (одна під одною)
+search_button = st.button("🔍 Пошук", type="primary")
+clear_button = st.button("🗑️ Очистити поле", type="secondary", on_click=clear_search_field)
 
-# --- 6. ОБРОБКА ЗАПИТУ ---
-if btn_search:
-    if not user_input:
-        st.warning("Введіть запитання!")
-    elif not pdf_text:
-        st.error("PDF не зчитано.")
+# --- 7. ЛОГІКА ВІДПОВІДІ З ЕЛЕМЕНТОМ STATUS ---
+if search_button:
+    if not user_query:
+        st.warning("Будь ласка, введіть запитання.")
+    elif not full_document_text:
+        st.error("Помилка зчитування файлу.")
     else:
-        with st.status("ШІ працює...") as status:
-            context = pdf_text[:15000] 
-            style = "тезисно" if mode == "Стисло (тези)" else "детально"
-            full_prompt = f"Контекст: {context}\n\nПитання: {user_input}\nМова: Українська. Стиль: {style}."
+        # Покрокове відображення процесу
+        with st.status("Обробка запиту...", expanded=True) as status:
+            st.write("📖 Зчитую інструкцію...")
+            st.write("🔍 Шукаю потрібний розділ у документації...")
+            context = get_relevant_context(user_query, full_document_text)
             
-            answer, error, model_used, key_used = get_ai_response(full_prompt)
+            st.write("🤖 Формую відповідь...")
+            style = "тези" if answer_mode == "Стисла (тези)" else "детально з пунктами правил"
+            prompt = f"Контекст: {context}\n\nПитання: {user_query}\n\nСтиль: {style}. Українською."
+            
+            answer, used_model, used_key = get_ai_response(prompt)
             
             if answer:
-                save_to_log(user_input, model_used, selected_pdf, key_used)
-                status.update(label="Готово!", state="complete")
-                st.markdown(f'<div class="answer-card">{answer}</div>', unsafe_allow_html=True)
+                status.update(label="✅ Аналіз завершено!", state="complete", expanded=False)
             else:
-                st.error(error)
+                status.update(label="❌ Виникла помилка", state="error", expanded=True)
 
-st.markdown(f"<div style='text-align: center; color: gray; font-size: 10px; margin-top: 50px;'>© {datetime.now().year} ПЧУ-5</div>", unsafe_allow_html=True)
+        # Вивід результату в гарній картці
+        if answer:
+            st.subheader("Результат:")
+            st.markdown(f'<div class="answer-card">{answer}</div>', unsafe_allow_html=True)
+            
+            # Статистика
+            now = (datetime.now() + timedelta(hours=2)).strftime("%H:%M:%S")
+            st.session_state.stats_history.append({
+                "Час": now, 
+                "Запит": user_query, 
+                "ШІ": used_model.replace("models/", ""), 
+                "Ключ": used_key
+            })
+
+# --- 8. ПІДПИС ---
+st.markdown(f"<div style='text-align: center; color: gray; font-size: 10px; margin-top: 40px;'>© {datetime.now().year} ПЧУ-5 Сергій ШИНКАРЕНКО</div>", unsafe_allow_html=True)
