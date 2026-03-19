@@ -4,90 +4,32 @@ import PyPDF2
 import os
 import random
 import pandas as pd
+import time
+import requests
 from datetime import datetime, timedelta
+from gspread_streamlit import gspread_client
 
-# --- 1. ІНІЦІАЛІЗАЦІЯ СТАТИСТИКИ ---
-if "stats_history" not in st.session_state:
-    st.session_state.stats_history = []
+# --- 1. НАЛАШТУВАННЯ GOOGLE SHEETS ---
+SPREADSHEET_ID = "1OINic0CgdHAXhegjbHgQdflbTL0DnpHJDj7EwA1N1Tw"
 
-# --- 2. КОНФІГУРАЦІЯ СТОРІНКИ ТА ПРИМУСОВИЙ CSS ---
-st.set_page_config(page_title="Бібліотека ПЧУ-5", layout="centered")
+def save_to_google_sheets(row_data):
+    try:
+        gc = gspread_client.get_client()
+        sh = gc.open_by_key(SPREADSHEET_ID)
+        worksheet = sh.get_worksheet(0)
+        worksheet.append_row(row_data)
+    except Exception as e:
+        st.error(f"Помилка запису в таблицю: {e}")
 
-st.markdown("""
-    <style>
-    /* 1. Головний заголовок */
-    .main-title {
-        text-align: center;
-        font-size: 24px;
-        font-weight: bold;
-        margin-top: -40px; 
-        margin-bottom: 25px;
-        line-height: 1.2;
-        color: #1E1E1E;
-        display: block;
-    }
-    
-    /* 2. ПРИМУСОВЕ РОЗТЯГУВАННЯ КНОПОК НА ВЕСЬ ЕКРАН */
-    /* Знімаємо обмеження ширини внутрішніх блоків Streamlit */
-    [data-testid="stVerticalBlock"] > div:has(div.stButton) {
-        width: 100% !important;
-    }
+# --- 2. ДОПОМІЖНІ ФУНКЦІЇ (IP, ПРИСТРІЙ, PDF) ---
+def get_user_ip():
+    try: return requests.get('https://ifconfig.me', timeout=2).text
+    except: return "Невідомо"
 
-    /* Стилізація контейнера кнопки */
-    .stButton {
-        width: 100% !important;
-    }
-
-    /* Стилізація самої кнопки (максимальний пріоритет) */
-    div[data-testid="stButton"] button {
-        width: 100% !important;
-        display: block !important;
-        height: 55px !important;
-        border-radius: 12px !important;
-        font-weight: bold !important;
-        font-size: 18px !important;
-        margin-top: 8px !important;
-        margin-bottom: 8px !important;
-        border: none !important;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
-        transition: all 0.2s ease-in-out !important;
-    }
-    
-    /* Кольори кнопок */
-    div[data-testid="stButton"] button[kind="primary"] {
-        background-color: #28a745 !important; /* Зелений */
-        color: white !important;
-    }
-    div[data-testid="stButton"] button[kind="secondary"] {
-        background-color: #6c757d !important; /* Сірий */
-        color: white !important;
-    }
-
-    /* Ефект при натисканні */
-    div[data-testid="stButton"] button:active {
-        transform: scale(0.98) !important;
-    }
-
-    /* Картка відповіді */
-    .answer-card {
-        background-color: #ffffff;
-        padding: 22px;
-        border-radius: 15px;
-        border-left: 6px solid #28a745;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        color: #1E1E1E;
-        line-height: 1.6;
-        margin-top: 20px;
-        font-size: 16px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-st.markdown("<div class='main-title'>📚 РОЗУМНА ТЕХНІЧНА<br>БІБЛІОТЕКА ПЧУ-5</div>", unsafe_allow_html=True)
-
-# --- 3. ДОПОМІЖНІ ФУНКЦІЇ ---
-def clear_search_field():
-    st.session_state["query_field"] = ""
+def get_user_device():
+    ua = st.context.headers.get("User-Agent", "").lower()
+    if any(m in ua for m in ["iphone", "android", "mobile"]): return "Мобільний"
+    return "Комп'ютер"
 
 @st.cache_data
 def extract_text_from_pdf(file_path):
@@ -102,104 +44,99 @@ def extract_text_from_pdf(file_path):
     except: return ""
 
 def get_relevant_context(query, full_text, top_k=15):
-    # RAG: Розбиття на частини для точності
     chunks = [full_text[i:i+3000] for i in range(0, len(full_text), 2500)]
-    if not query: return "\n".join(chunks[:5])
-    
+    if not query: return ""
     query_words = query.lower().split()
     scored_chunks = []
     for chunk in chunks:
         score = sum(chunk.lower().count(word) for word in query_words)
         scored_chunks.append((score, chunk))
-    
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
     return "\n---\n".join([c[1] for c in scored_chunks[:top_k]])
 
-# --- 4. РОБОТА З ШІ (API) ---
 def get_ai_response(prompt):
-    key_names = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
-    random.shuffle(key_names)
-    for name in key_names:
-        if name in st.secrets:
+    keys = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
+    random.shuffle(keys)
+    for k_name in keys:
+        if k_name in st.secrets:
             try:
-                genai.configure(api_key=st.secrets[name])
-                available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
-                model = genai.GenerativeModel(model_name)
+                genai.configure(api_key=st.secrets[k_name])
+                model = genai.GenerativeModel('gemini-1.5-flash')
                 response = model.generate_content(prompt)
-                return response.text, model_name, name
-            except Exception:
-                continue 
+                return response.text, "Gemini 1.5 Flash", k_name
+            except: continue
     return None, None, None
 
-# --- 5. БОКОВА ПАНЕЛЬ ---
-with st.sidebar:
-    st.header("🔐 Адмін-панель")
-    access_code = st.text_input("Введіть код доступу:", type="password")
-    if access_code == "3003": 
-        st.subheader("Історія поточної сесії")
-        if st.session_state.stats_history:
-            df = pd.DataFrame(st.session_state.stats_history)
-            st.dataframe(df[::-1], use_container_width=True)
-        else:
-            st.info("Запитів ще не було")
+# --- 3. ІНТЕРФЕЙС ТА СТИЛІ ---
+st.set_page_config(page_title="Бібліотека ПЧУ-5", layout="centered")
 
-# --- 6. ОСНОВНИЙ ІНТЕРФЕЙС ---
+st.markdown("""
+    <style>
+    .main-title { text-align: center; font-size: 24px; font-weight: bold; margin-top: -40px; margin-bottom: 25px; }
+    div[data-testid="stButton"] button { width: 100% !important; height: 55px !important; border-radius: 12px !important; font-weight: bold !important; font-size: 18px !important; margin-top: 8px !important; border: none !important; box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important; }
+    div[data-testid="stButton"] button[kind="primary"] { background-color: #28a745 !important; color: white !important; }
+    div[data-testid="stButton"] button[kind="secondary"] { background-color: #6c757d !important; color: white !important; }
+    .answer-card { background-color: white; padding: 22px; border-radius: 15px; border-left: 6px solid #28a745; box-shadow: 0 4px 15px rgba(0,0,0,0.1); color: black; line-height: 1.6; }
+    </style>
+    """, unsafe_allow_html=True)
+
+st.markdown("<div class='main-title'>📚 РОЗУМНА ТЕХНІЧНА<br>БІБЛІОТЕКА ПЧУ-5</div>", unsafe_allow_html=True)
+
+if "query_field" not in st.session_state: st.session_state.query_field = ""
+
+# Вибір інструкції
 available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
 if not available_files:
-    st.error("Файли не знайдені!")
+    st.error("Файли PDF не знайдені в папці.")
     st.stop()
 
-selected_option = st.selectbox("Оберіть інструкцію:", available_files)
+selected_file = st.selectbox("Оберіть інструкцію:", available_files)
 answer_mode = st.radio("Тип відповіді:", ["Стисла (тези)", "Розгорнута (детально)"], horizontal=True)
 
-# Зчитування тексту з кешуванням
-full_document_text = extract_text_from_pdf(selected_option)
+# Поле пошуку
+user_query = st.text_input("Пошук", placeholder="Введіть запитання...", key="query_field", label_visibility="collapsed")
 
-# Поле вводу
-user_query = st.text_input("Пошук", placeholder="Введіть ваше запитання...", key="query_field", label_visibility="collapsed")
-
-# Кнопки (одна під одною)
-search_button = st.button("🔍 Пошук", type="primary")
-clear_button = st.button("🗑️ Очистити поле", type="secondary", on_click=clear_search_field)
-
-# --- 7. ЛОГІКА ВІДПОВІДІ З ЕЛЕМЕНТОМ STATUS ---
-if search_button:
+# Кнопки
+if st.button("🔍 Пошук", type="primary"):
     if not user_query:
-        st.warning("Будь ласка, введіть запитання.")
-    elif not full_document_text:
-        st.error("Помилка зчитування файлу.")
+        st.warning("Введіть запитання!")
     else:
-        # Покрокове відображення процесу
-        with st.status("Обробка запиту...", expanded=True) as status:
-            st.write("📖 Зчитую інструкцію...")
-            st.write("🔍 Шукаю потрібний розділ у документації...")
-            context = get_relevant_context(user_query, full_document_text)
+        start_time = time.time()
+        with st.status("Опрацювання запиту...", expanded=True) as status:
+            st.write("📖 Зчитую файл...")
+            full_text = extract_text_from_pdf(selected_file)
             
-            st.write("🤖 Формую відповідь...")
-            style = "тези" if answer_mode == "Стисла (тези)" else "детально з пунктами правил"
-            prompt = f"Контекст: {context}\n\nПитання: {user_query}\n\nСтиль: {style}. Українською."
+            st.write("🔍 Шукаю контекст...")
+            context = get_relevant_context(user_query, full_text)
             
-            answer, used_model, used_key = get_ai_response(prompt)
+            st.write("🤖 Формую відповідь ШІ...")
+            style = "тези" if answer_mode == "Стисла (тези)" else "детально з пунктами"
+            prompt = f"Контекст: {context}\n\nПитання: {user_query}\n\nНадай відповідь українською у стилі: {style}."
+            
+            answer, model_name, key_used = get_ai_response(prompt)
+            
+            proc_time = round(time.time() - start_time, 2)
             
             if answer:
-                status.update(label="✅ Аналіз завершено!", state="complete", expanded=False)
+                status.update(label=f"✅ Готово! ({proc_time} сек)", state="complete", expanded=False)
+                st.markdown(f'<div class="answer-card">{answer}</div>', unsafe_allow_html=True)
+                
+                # ЗБЕРЕЖЕННЯ В ТАБЛИЦЮ
+                row = [
+                    (datetime.now() + timedelta(hours=2)).strftime("%d.%m.%Y %H:%M:%S"),
+                    get_user_ip(),
+                    user_query,
+                    proc_time,
+                    model_name,
+                    key_used,
+                    get_user_device()
+                ]
+                save_to_google_sheets(row)
             else:
-                status.update(label="❌ Виникла помилка", state="error", expanded=True)
+                status.update(label="❌ Помилка ШІ", state="error")
 
-        # Вивід результату в гарній картці
-        if answer:
-            st.subheader("Результат:")
-            st.markdown(f'<div class="answer-card">{answer}</div>', unsafe_allow_html=True)
-            
-            # Статистика
-            now = (datetime.now() + timedelta(hours=2)).strftime("%H:%M:%S")
-            st.session_state.stats_history.append({
-                "Час": now, 
-                "Запит": user_query, 
-                "ШІ": used_model.replace("models/", ""), 
-                "Ключ": used_key
-            })
+if st.button("🗑️ Очистити поле", type="secondary"):
+    st.session_state.query_field = ""
+    st.rerun()
 
-# --- 8. ПІДПИС ---
 st.markdown(f"<div style='text-align: center; color: gray; font-size: 10px; margin-top: 40px;'>© {datetime.now().year} ПЧУ-5 Сергій ШИНКАРЕНКО</div>", unsafe_allow_html=True)
