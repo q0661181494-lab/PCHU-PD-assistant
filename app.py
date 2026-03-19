@@ -5,7 +5,7 @@ import os
 import random
 from datetime import datetime
 
-# --- 1. КОНФІГУРАЦІЯ СТОРІНКИ ТА ПРИМУСОВИЙ CSS ---
+# --- 1. КОНФІГУРАЦІЯ СТОРІНКИ ---
 st.set_page_config(page_title="Бібліотека ПЧУ-5", layout="centered")
 
 st.markdown("""
@@ -83,57 +83,56 @@ def extract_text_from_pdf(file_path):
 def get_relevant_context(query, full_text, top_k=15):
     chunks = [full_text[i:i+3000] for i in range(0, len(full_text), 2500)]
     if not query: return "\n".join(chunks[:5])
-    
     query_words = query.lower().split()
     scored_chunks = []
     for chunk in chunks:
         score = sum(chunk.lower().count(word) for word in query_words)
         scored_chunks.append((score, chunk))
-    
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
     return "\n---\n".join([c[1] for c in scored_chunks[:top_k]])
 
-# --- 3. РОБОТА З ШІ (API) З ВИПРАВЛЕННЯМ ПОМИЛКИ 404 ---
+# --- 3. ФУНКЦІЯ ЗАПИТУ РОБОЧОЇ МОДЕЛИ ТА ВІДПОВІДІ ---
 def get_ai_response(prompt):
     key_names = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
     random.shuffle(key_names)
     
+    # Фільтруємо наявні ключі в Secrets
     active_keys = [k for k in key_names if k in st.secrets]
     
     if not active_keys:
-        return None, "ПОМИЛКА: Ключі API не знайдені в Secrets. Перевірте формат TOML."
+        return None, "ПОМИЛКА: Ключі не знайдені. Перевірте Secrets (має бути формат KEY1 = '...')"
 
     last_error = ""
     for name in active_keys:
         try:
             genai.configure(api_key=st.secrets[name])
             
-            # Спроба використати різні назви моделей, щоб уникнути помилки 404
-            model_variants = ['gemini-1.5-flash', 'models/gemini-1.5-flash', 'gemini-pro']
+            # --- ЗАПИТ РОБОЧИХ МОДЕЛЕЙ У GOOGLE ---
+            # Отримуємо список усіх моделей, які підтримують генерацію контенту
+            models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
             
-            response = None
-            for m_name in model_variants:
-                try:
-                    model = genai.GenerativeModel(m_name)
-                    response = model.generate_content(prompt)
-                    if response: break
-                except:
-                    continue
+            if not models:
+                continue
+                
+            # Вибираємо найкращу доступну (flash або pro)
+            target_model = 'models/gemini-1.5-flash'
+            if target_model not in models:
+                target_model = models[0] # беремо будь-яку робочу, якщо flash немає
             
-            if response:
-                return response.text, None
-            else:
-                last_error = "Жодна з моделей (flash/pro) не відповіла."
+            model = genai.GenerativeModel(target_model)
+            response = model.generate_content(prompt)
+            return response.text, None
+            
         except Exception as e:
             last_error = str(e)
             continue 
             
     return None, f"ПОМИЛКА API ({name}): {last_error}"
 
-# --- 4. ОСНОВНИЙ ІНТЕРФЕЙС ---
+# --- 4. ІНТЕРФЕЙС ---
 available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
 if not available_files:
-    st.error("Файли не знайдені!")
+    st.error("Файли .pdf не знайдені в папці проєкту!")
     st.stop()
 
 selected_option = st.selectbox("Оберіть інструкцію:", available_files)
@@ -149,17 +148,15 @@ clear_button = st.button("🗑️ Очистити поле", type="secondary", 
 # --- 5. ЛОГІКА ВІДПОВІДІ ---
 if search_button:
     if not user_query:
-        st.warning("Будь ласка, введіть запитання.")
+        st.warning("Введіть запитання.")
     elif "ERROR_PDF" in full_document_text:
-        st.error(f"Помилка зчитування файлу: {full_document_text}")
-    elif not full_document_text:
-        st.error("Файл порожній або не знайдений.")
+        st.error(f"Помилка PDF: {full_document_text}")
     else:
-        with st.status("Обробка запиту...", expanded=True) as status:
-            st.write("📖 Зчитую інструкцію...")
+        with st.status("Триває обробка...", expanded=True) as status:
+            st.write("📖 Аналізую документ...")
             context = get_relevant_context(user_query, full_document_text)
             
-            st.write("🤖 Формую відповідь...")
+            st.write("🤖 Запитую робочу модель у Google...")
             style = "тези" if answer_mode == "Стисла (тези)" else "детально з пунктами правил"
             prompt = f"Контекст: {context}\n\nПитання: {user_query}\n\nСтиль: {style}. Українською."
             
@@ -168,7 +165,7 @@ if search_button:
             if answer:
                 status.update(label="✅ Аналіз завершено!", state="complete", expanded=False)
             else:
-                status.update(label="❌ Виникла помилка", state="error", expanded=True)
+                status.update(label="❌ Помилка моделі", state="error", expanded=True)
                 st.error(error_msg)
 
         if answer:
