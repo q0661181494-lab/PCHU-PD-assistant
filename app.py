@@ -6,16 +6,25 @@ import random
 import pandas as pd
 from datetime import datetime, timedelta
 
-# --- 1. ІНІЦІАЛІЗАЦІЯ СТАТИСТИКИ ---
+# --- 1. ІНІЦІАЛІЗАЦІЯ СТАТИСТИКИ ТА ФАЙЛУ ---
+STATS_FILE = "stats_history.csv"
+
 if "stats_history" not in st.session_state:
-    st.session_state.stats_history = []
+    if os.path.exists(STATS_FILE):
+        try:
+            # Завантажуємо існуючу історію з файлу при старті додатка
+            df_existing = pd.read_csv(STATS_FILE)
+            st.session_state.stats_history = df_existing.to_dict('records')
+        except:
+            st.session_state.stats_history = []
+    else:
+        st.session_state.stats_history = []
 
 # --- 2. КОНФІГУРАЦІЯ СТОРІНКИ ТА ПРИМУСОВИЙ CSS ---
 st.set_page_config(page_title="Бібліотека ПЧУ-5", layout="centered")
 
 st.markdown("""
     <style>
-    /* 1. Головний заголовок */
     .main-title {
         text-align: center;
         font-size: 24px;
@@ -27,18 +36,14 @@ st.markdown("""
         display: block;
     }
     
-    /* 2. ПРИМУСОВЕ РОЗТЯГУВАННЯ КНОПОК НА ВЕСЬ ЕКРАН */
-    /* Знімаємо обмеження ширини внутрішніх блоків Streamlit */
     [data-testid="stVerticalBlock"] > div:has(div.stButton) {
         width: 100% !important;
     }
 
-    /* Стилізація контейнера кнопки */
     .stButton {
         width: 100% !important;
     }
 
-    /* Стилізація самої кнопки (максимальний пріоритет) */
     div[data-testid="stButton"] button {
         width: 100% !important;
         display: block !important;
@@ -53,22 +58,19 @@ st.markdown("""
         transition: all 0.2s ease-in-out !important;
     }
     
-    /* Кольори кнопок */
     div[data-testid="stButton"] button[kind="primary"] {
-        background-color: #28a745 !important; /* Зелений */
+        background-color: #28a745 !important;
         color: white !important;
     }
     div[data-testid="stButton"] button[kind="secondary"] {
-        background-color: #6c757d !important; /* Сірий */
+        background-color: #6c757d !important;
         color: white !important;
     }
 
-    /* Ефект при натисканні */
     div[data-testid="stButton"] button:active {
         transform: scale(0.98) !important;
     }
 
-    /* Картка відповіді */
     .answer-card {
         background-color: #ffffff;
         padding: 22px;
@@ -102,7 +104,6 @@ def extract_text_from_pdf(file_path):
     except: return ""
 
 def get_relevant_context(query, full_text, top_k=15):
-    # RAG: Розбиття на частини для точності
     chunks = [full_text[i:i+3000] for i in range(0, len(full_text), 2500)]
     if not query: return "\n".join(chunks[:5])
     
@@ -132,14 +133,34 @@ def get_ai_response(prompt):
                 continue 
     return None, None, None
 
-# --- 5. БОКОВА ПАНЕЛЬ ---
+# --- 5. БОКОВА ПАНЕЛЬ (АДМІНКА ТА ЗАВАНТАЖЕННЯ) ---
 with st.sidebar:
     st.header("🔐 Адмін-панель")
     access_code = st.text_input("Введіть код доступу:", type="password")
+    
     if access_code == "3003": 
-        st.subheader("Історія поточної сесії")
+        st.subheader("📊 Управління даними")
         if st.session_state.stats_history:
             df = pd.DataFrame(st.session_state.stats_history)
+            
+            # Підготовка CSV для завантаження
+            csv_data = df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+            st.download_button(
+                label="📥 Завантажити статистику (CSV)",
+                data=csv_data,
+                file_name=f"stats_pchu5_{datetime.now().strftime('%d_%m_%Y')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+            
+            if st.button("🗑️ Очистити історію"):
+                if os.path.exists(STATS_FILE):
+                    os.remove(STATS_FILE)
+                st.session_state.stats_history = []
+                st.rerun()
+
+            st.write("---")
+            st.subheader("Історія поточної сесії")
             st.dataframe(df[::-1], use_container_width=True)
         else:
             st.info("Запитів ще не було")
@@ -153,24 +174,19 @@ if not available_files:
 selected_option = st.selectbox("Оберіть інструкцію:", available_files)
 answer_mode = st.radio("Тип відповіді:", ["Стисла (тези)", "Розгорнута (детально)"], horizontal=True)
 
-# Зчитування тексту з кешуванням
 full_document_text = extract_text_from_pdf(selected_option)
-
-# Поле вводу
 user_query = st.text_input("Пошук", placeholder="Введіть ваше запитання...", key="query_field", label_visibility="collapsed")
 
-# Кнопки (одна під одною)
 search_button = st.button("🔍 Пошук", type="primary")
 clear_button = st.button("🗑️ Очистити поле", type="secondary", on_click=clear_search_field)
 
-# --- 7. ЛОГІКА ВІДПОВІДІ З ЕЛЕМЕНТОМ STATUS ---
+# --- 7. ЛОГІКА ВІДПОВІДІ ---
 if search_button:
     if not user_query:
         st.warning("Будь ласка, введіть запитання.")
     elif not full_document_text:
         st.error("Помилка зчитування файлу.")
     else:
-        # Покрокове відображення процесу
         with st.status("Обробка запиту...", expanded=True) as status:
             st.write("📖 Зчитую інструкцію...")
             st.write("🔍 Шукаю потрібний розділ у документації...")
@@ -187,19 +203,22 @@ if search_button:
             else:
                 status.update(label="❌ Виникла помилка", state="error", expanded=True)
 
-        # Вивід результату в гарній картці
         if answer:
             st.subheader("Результат:")
             st.markdown(f'<div class="answer-card">{answer}</div>', unsafe_allow_html=True)
             
-            # Статистика
-            now = (datetime.now() + timedelta(hours=2)).strftime("%H:%M:%S")
-            st.session_state.stats_history.append({
+            # Збереження статистики
+            now = (datetime.now() + timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
+            log_entry = {
                 "Час": now, 
                 "Запит": user_query, 
                 "ШІ": used_model.replace("models/", ""), 
                 "Ключ": used_key
-            })
+            }
+            st.session_state.stats_history.append(log_entry)
+            
+            # Автоматичне збереження у файл на диску
+            pd.DataFrame(st.session_state.stats_history).to_csv(STATS_FILE, index=False, encoding='utf-8-sig')
 
 # --- 8. ПІДПИС ---
 st.markdown(f"<div style='text-align: center; color: gray; font-size: 10px; margin-top: 40px;'>© {datetime.now().year} ПЧУ-5 Сергій ШИНКАРЕНКО</div>", unsafe_allow_html=True)
