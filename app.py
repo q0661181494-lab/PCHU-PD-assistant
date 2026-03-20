@@ -1,3 +1,99 @@
+import streamlit as st
+import google.generativeai as genai
+import PyPDF2
+import os
+import random
+import pandas as pd
+from datetime import datetime, timedelta
+
+# --- 1. ІНІЦІАЛІЗАЦІЯ СТАТИСТИКИ ---
+if "stats_history" not in st.session_state:
+    st.session_state.stats_history = []
+
+# --- 2. КОНФІГУРАЦІЯ СТОРІНКИ ТА ПРИМУСОВИЙ CSS ---
+st.set_page_config(page_title="Бібліотека ПЧУ-5", layout="centered")
+
+st.markdown("""
+    <style>
+    /* 1. Головний заголовок */
+    .main-title {
+        text-align: center;
+        font-size: 24px;
+        font-weight: bold;
+        margin-top: -40px; 
+        margin-bottom: 25px;
+        line-height: 1.2;
+        color: #1E1E1E;
+        display: block;
+    }
+    
+    /* 2. ПРИМУСОВЕ РОЗТЯГУВАННЯ КНОПОК НА ВЕСЬ ЕКРАН */
+    /* Знімаємо обмеження ширини внутрішніх блоків Streamlit */
+    [data-testid="stVerticalBlock"] > div:has(div.stButton) {
+        width: 100% !important;
+    }
+
+    /* Стилізація контейнера кнопки */
+    .stButton {
+        width: 100% !important;
+    }
+
+    /* Стилізація самої кнопки (максимальний пріоритет) */
+    div[data-testid="stButton"] button {
+        width: 100% !important;
+        display: block !important;
+        height: 55px !important;
+        border-radius: 12px !important;
+        font-weight: bold !important;
+        font-size: 18px !important;
+        margin-top: 8px !important;
+        margin-bottom: 8px !important;
+        border: none !important;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
+        transition: all 0.2s ease-in-out !important;
+    }
+    
+    /* Кольори кнопок */
+    div[data-testid="stButton"] button[kind="primary"] {
+        background-color: #28a745 !important; /* Зелений */
+        color: white !important;
+    }
+    div[data-testid="stButton"] button[kind="secondary"] {
+        background-color: #6c757d !important; /* Сірий */
+        color: white !important;
+    }
+
+    /* Ефект при натисканні */
+    div[data-testid="stButton"] button:active {
+        transform: scale(0.98) !important;
+    }
+
+    /* Картка відповіді */
+    .answer-card {
+        background-color: #ffffff;
+        padding: 22px;
+        border-radius: 15px;
+        border-left: 6px solid #28a745;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        color: #1E1E1E;
+        line-height: 1.6;
+        margin-top: 20px;
+        font-size: 16px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+st.markdown("<div class='main-title'>📚 РОЗУМНА ТЕХНІЧНА<br>БІБЛІОТЕКА ПЧУ-5</div>", unsafe_allow_html=True)
+
+# --- 3. ДОПОМІЖНІ ФУНКЦІЇ ---
+def clear_search_field():
+    st.session_state["query_field"] = ""
+
+@st.cache_data
+def extract_text_from_pdf(file_path):
+    text = ""
+    try:
+        with open(file_path, "rb") as f:
             reader = PyPDF2.PdfReader(f)
             for page in reader.pages:
                 t = page.extract_text()
