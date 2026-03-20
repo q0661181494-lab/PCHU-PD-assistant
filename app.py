@@ -79,10 +79,10 @@ st.markdown("""
 
 st.markdown("<div class='main-title'>📚 РОЗУМНА ТЕХНІЧНА<br>БІБЛІОТЕКА ПЧУ-5</div>", unsafe_allow_html=True)
 
-# --- 3. ДОПОМІЖНІ ФУНКЦІЇ ---
+# --- 3. ДОПОМІЖНІ ФУНКЦІЇ (ОПТИМІЗОВАНО ДЛЯ ВЕЛИКИХ PDF) ---
 def clear_search_field():
     st.session_state["query_field"] = ""
-    st.session_state["last_processed_query"] = "" # Скидаємо прапорець для Enter
+    st.session_state["last_processed_query"] = ""
 
 @st.cache_data
 def extract_text_from_pdf(file_path):
@@ -96,17 +96,20 @@ def extract_text_from_pdf(file_path):
         return text
     except: return ""
 
-def get_relevant_context(query, full_text, top_k=15):
-    chunks = [full_text[i:i+3000] for i in range(0, len(full_text), 2500)]
+def get_relevant_context(query, full_text, top_k=35):
+    # Збільшено розмір шматка до 5000 символів для кращого охоплення змісту
+    chunks = [full_text[i:i+6000] for i in range(0, len(full_text), 5000)]
     if not query: return "\n".join(chunks[:5])
     
     query_words = query.lower().split()
     scored_chunks = []
     for chunk in chunks:
+        # Простий, але дієвий підрахунок входжень ключових слів
         score = sum(chunk.lower().count(word) for word in query_words)
         scored_chunks.append((score, chunk))
     
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
+    # Повертаємо 35 найбільш релевантних шматків (Gemini Flash це опрацює миттєво)
     return "\n---\n".join([c[1] for c in scored_chunks[:top_k]])
 
 # --- 4. РОБОТА З ШІ (API) ---
@@ -126,7 +129,7 @@ def get_ai_response(prompt):
                 continue 
     return None, None, None
 
-# --- 5. БОКОВА ПАНЕЛЬ (КЕРУВАННЯ ТА РОЗШИРЕНА СТАТИСТИКА) ---
+# --- 5. БОКОВА ПАНЕЛЬ (РОЗШИРЕНА СТАТИСТИКА ТА КЕРУВАННЯ) ---
 with st.sidebar:
     st.header("🔐 Адмін-панель")
     access_code = st.text_input("Введіть код доступу:", type="password")
@@ -139,7 +142,7 @@ with st.sidebar:
         if os.path.exists(stats_file):
             df_stats = pd.read_csv(stats_file)
             
-            # Таблиця з можливістю розгортання клітинок
+            # Відображення таблиці з новими колонками та розгортанням
             st.dataframe(
                 df_stats[::-1], 
                 use_container_width=True,
@@ -154,16 +157,16 @@ with st.sidebar:
                 }
             )
             
-            # Кнопки керування
+            # Детальний перегляд останнього запиту
+            with st.expander("🔍 Перегляд останнього питання"):
+                if not df_stats.empty:
+                    st.write(f"**Запит:** {df_stats.iloc[-1]['Запит']}")
+                    st.write(f"**Інструкція:** {df_stats.iloc[-1]['Інструкція']}")
+            
             col1, col2 = st.columns(2)
             with col1:
                 csv_download = df_stats.to_csv(index=False).encode('utf-8-sig')
-                st.download_button(
-                    label="📥 CSV",
-                    data=csv_download,
-                    file_name=f"stats_pchu5_{datetime.now().strftime('%d_%m_%Y')}.csv",
-                    mime="text/csv"
-                )
+                st.download_button(label="📥 CSV", data=csv_download, file_name=f"stats_pchu5.csv", mime="text/csv")
             with col2:
                 if st.button("🗑️ Очистити", type="secondary"):
                     os.remove(stats_file)
@@ -182,15 +185,12 @@ answer_mode = st.radio("Тип відповіді:", ["Стисла (тези)",
 
 full_document_text = extract_text_from_pdf(selected_option)
 
-# Поле вводу
 user_query = st.text_input("Пошук", placeholder="Введіть запитання та натисніть Enter...", key="query_field", label_visibility="collapsed")
 
-# Кнопки
 search_button = st.button("🔍 Пошук", type="primary")
 clear_button = st.button("🗑️ Очистити поле", type="secondary", on_click=clear_search_field)
 
-# --- 7. ЛОГІКА ВІДПОВІДІ (З ПІДТРИМКОЮ ENTER) ---
-# Пошук запускається якщо: натиснута кнопка АБО введено новий текст і натиснуто Enter
+# --- 7. ЛОГІКА ВІДПОВІДІ (З ПІДТРИМКОЮ ENTER ТА НОВИМИ КОЛОНКАМИ) ---
 enter_pressed = user_query != "" and st.session_state.last_processed_query != user_query
 
 if search_button or enter_pressed:
@@ -199,13 +199,12 @@ if search_button or enter_pressed:
     elif not full_document_text:
         st.error("Помилка зчитування файлу.")
     else:
-        # Оновлюємо стан, щоб уникнути повторного запуску при кліках у Sidebar
         st.session_state.last_processed_query = user_query
         
         with st.status("Обробка запиту...", expanded=True) as status:
-            st.write("📖 Зчитую інструкцію...")
-            st.write("🔍 Шукаю розділ...")
-            context = get_relevant_context(user_query, full_document_text)
+            st.write("📖 Аналізую зміст...")
+            # Передаємо збільшену кількість контексту (top_k=35)
+            context = get_relevant_context(user_query, full_document_text, top_k=35)
             
             st.write("🤖 Формую відповідь...")
             style = "тези" if answer_mode == "Стисла (тези)" else "детально з пунктами правил"
@@ -216,7 +215,7 @@ if search_button or enter_pressed:
             if answer:
                 status.update(label="✅ Завершено!", state="complete", expanded=False)
                 
-                # --- ЗАПИС РОЗШИРЕНОЇ СТАТИСТИКИ ---
+                # Запис у статистику (включаючи нові колонки)
                 now = datetime.now() + timedelta(hours=2)
                 new_data = {
                     "Дата": now.strftime("%d.%m.%Y"),
@@ -235,7 +234,7 @@ if search_button or enter_pressed:
                 else:
                     df_entry.to_csv(stats_file, mode='a', header=False, index=False, encoding='utf-8-sig')
             else:
-                status.update(label="❌ Помилка ШІ", state="error", expanded=True)
+                status.update(label="❌ Помилка", state="error", expanded=True)
 
         if answer:
             st.subheader("Результат:")
