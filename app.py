@@ -15,7 +15,6 @@ st.set_page_config(page_title="Бібліотека ПЧУ-5", layout="centered"
 
 st.markdown("""
     <style>
-    /* 1. Головний заголовок */
     .main-title {
         text-align: center;
         font-size: 24px;
@@ -27,7 +26,6 @@ st.markdown("""
         display: block;
     }
     
-    /* 2. ПРИМУСОВЕ РОЗТЯГУВАННЯ КНОПОК НА ВЕСЬ ЕКРАН */
     [data-testid="stVerticalBlock"] > div:has(div.stButton) {
         width: 100% !important;
     }
@@ -125,7 +123,7 @@ def get_ai_response(prompt):
                 continue 
     return None, None, None
 
-# --- 5. БОКОВА ПАНЕЛЬ (ЗМІНЕНО ТУТ) ---
+# --- 5. БОКОВА ПАНЕЛЬ (ОНОВЛЕНО ЗГІДНО ЗАПИТУ) ---
 with st.sidebar:
     st.header("🔐 Адмін-панель")
     access_code = st.text_input("Введіть код доступу:", type="password")
@@ -135,15 +133,32 @@ with st.sidebar:
         
         stats_file = "stats.csv"
         
-        # Перевіряємо наявність файлу та виводимо таблицю
         if os.path.exists(stats_file):
             df_stats = pd.read_csv(stats_file)
-            st.dataframe(df_stats[::-1], use_container_width=True)
             
-            # Кнопки керування
+            # Налаштування відображення таблиці
+            # Використовуємо column_config для скорочення тексту в "Запиті"
+            st.dataframe(
+                df_stats[::-1], 
+                use_container_width=True,
+                column_config={
+                    "Запит": st.column_config.TextColumn(
+                        "Запит (натисніть щоб розгорнути)",
+                        width="medium",
+                        help="Клацніть на клітинку, щоб побачити повний текст питання"
+                    ),
+                    "Інструкція": st.column_config.TextColumn("Обрана інструкція"),
+                    "Тип": st.column_config.TextColumn("Тип відповіді")
+                }
+            )
+            
+            # Додаткова можливість розгорнутого перегляду останнього запиту
+            with st.expander("🔍 Детальний перегляд останнього питання"):
+                last_q = df_stats.iloc[-1]["Запит"] if not df_stats.empty else "Немає даних"
+                st.write(last_q)
+            
             col1, col2 = st.columns(2)
             with col1:
-                # Збереження (скачування) статистики
                 csv_download = df_stats.to_csv(index=False).encode('utf-8-sig')
                 st.download_button(
                     label="📥 Скачати CSV",
@@ -152,7 +167,6 @@ with st.sidebar:
                     mime="text/csv"
                 )
             with col2:
-                # Очищення статистики
                 if st.button("🗑️ Очистити", type="secondary"):
                     os.remove(stats_file)
                     st.rerun()
@@ -175,7 +189,7 @@ user_query = st.text_input("Пошук", placeholder="Введіть ваше з
 search_button = st.button("🔍 Пошук", type="primary")
 clear_button = st.button("🗑️ Очистити поле", type="secondary", on_click=clear_search_field)
 
-# --- 7. ЛОГІКА ВІДПОВІДІ ---
+# --- 7. ЛОГІКА ВІДПОВІДІ (ДОДАНО НОВІ КОЛОНКИ ПРИ ЗАПИСУ) ---
 if search_button:
     if not user_query:
         st.warning("Будь ласка, введіть запитання.")
@@ -196,17 +210,18 @@ if search_button:
             if answer:
                 status.update(label="✅ Аналіз завершено!", state="complete", expanded=False)
                 
-                # --- ЛОГІКА ПОСТІЙНОГО ЗБЕРЕЖЕННЯ ---
+                # --- ЗАПИС РОЗШИРЕНОЇ СТАТИСТИКИ ---
                 now = datetime.now() + timedelta(hours=2)
                 new_data = {
                     "Дата": now.strftime("%d.%m.%Y"),
                     "Час": now.strftime("%H:%M:%S"),
+                    "Інструкція": selected_option,  # Нова колонка
+                    "Тип": answer_mode,             # Нова колонка
                     "Запит": user_query,
                     "ШІ": used_model.replace("models/", ""),
                     "Ключ": used_key
                 }
                 
-                # Запис у CSV файл (append mode)
                 df_entry = pd.DataFrame([new_data])
                 stats_file = "stats.csv"
                 if not os.path.isfile(stats_file):
