@@ -12,7 +12,7 @@ if "stats_history" not in st.session_state:
 if "last_processed_query" not in st.session_state:
     st.session_state.last_processed_query = ""
 
-# --- 2. КОНФІГУРАЦІЯ СТОРІНКИ ТА ПРИМУСОВИЙ CSS ---
+# --- 2. КОНФІГУРАЦІЯ СТОРІНКИ ТА CSS (ДОДАНО ЕКСПЕРТНИЙ СТИЛЬ) ---
 st.set_page_config(page_title="Бібліотека ПЧУ-5", layout="centered")
 
 st.markdown("""
@@ -28,41 +28,15 @@ st.markdown("""
         display: block;
     }
     
-    [data-testid="stVerticalBlock"] > div:has(div.stButton) {
+    .stButton > button {
         width: 100% !important;
-    }
-
-    .stButton {
-        width: 100% !important;
-    }
-
-    div[data-testid="stButton"] button {
-        width: 100% !important;
-        display: block !important;
         height: 55px !important;
         border-radius: 12px !important;
         font-weight: bold !important;
         font-size: 18px !important;
-        margin-top: 8px !important;
-        margin-bottom: 8px !important;
-        border: none !important;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
-        transition: all 0.2s ease-in-out !important;
     }
     
-    div[data-testid="stButton"] button[kind="primary"] {
-        background-color: #28a745 !important;
-        color: white !important;
-    }
-    div[data-testid="stButton"] button[kind="secondary"] {
-        background-color: #6c757d !important;
-        color: white !important;
-    }
-
-    div[data-testid="stButton"] button:active {
-        transform: scale(0.98) !important;
-    }
-
+    /* Стандартна картка (Зелена) */
     .answer-card {
         background-color: #ffffff;
         padding: 22px;
@@ -72,14 +46,25 @@ st.markdown("""
         color: #1E1E1E;
         line-height: 1.6;
         margin-top: 20px;
-        font-size: 16px;
+    }
+
+    /* Експертна картка (Синя) */
+    .expert-card {
+        background-color: #f0f7ff;
+        padding: 22px;
+        border-radius: 15px;
+        border-left: 6px solid #007bff;
+        box-shadow: 0 4px 20px rgba(0,123,255,0.15);
+        color: #1E1E1E;
+        line-height: 1.6;
+        margin-top: 20px;
     }
     </style>
     """, unsafe_allow_html=True)
 
 st.markdown("<div class='main-title'>📚 РОЗУМНА ТЕХНІЧНА<br>БІБЛІОТЕКА ПЧУ-5</div>", unsafe_allow_html=True)
 
-# --- 3. ДОПОМІЖНІ ФУНКЦІЇ (ОПТИМІЗОВАНО ДЛЯ ВЕЛИКИХ PDF) ---
+# --- 3. ДОПОМІЖНІ ФУНКЦІЇ ---
 def clear_search_field():
     st.session_state["query_field"] = ""
     st.session_state["last_processed_query"] = ""
@@ -97,19 +82,14 @@ def extract_text_from_pdf(file_path):
     except: return ""
 
 def get_relevant_context(query, full_text, top_k=35):
-    # Збільшено розмір шматка до 5000 символів для кращого охоплення змісту
     chunks = [full_text[i:i+6000] for i in range(0, len(full_text), 5000)]
     if not query: return "\n".join(chunks[:5])
-    
     query_words = query.lower().split()
     scored_chunks = []
     for chunk in chunks:
-        # Простий, але дієвий підрахунок входжень ключових слів
         score = sum(chunk.lower().count(word) for word in query_words)
         scored_chunks.append((score, chunk))
-    
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
-    # Повертаємо 35 найбільш релевантних шматків (Gemini Flash це опрацює миттєво)
     return "\n---\n".join([c[1] for c in scored_chunks[:top_k]])
 
 # --- 4. РОБОТА З ШІ (API) ---
@@ -120,137 +100,104 @@ def get_ai_response(prompt):
         if name in st.secrets:
             try:
                 genai.configure(api_key=st.secrets[name])
-                available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
-                model = genai.GenerativeModel(model_name)
+                model = genai.GenerativeModel('models/gemini-1.5-flash')
                 response = model.generate_content(prompt)
-                return response.text, model_name, name
-            except Exception:
-                continue 
+                return response.text, 'gemini-1.5-flash', name
+            except: continue 
     return None, None, None
 
-# --- 5. БОКОВА ПАНЕЛЬ (РОЗШИРЕНА СТАТИСТИКА ТА КЕРУВАННЯ) ---
+# --- 5. БОКОВА ПАНЕЛЬ ---
 with st.sidebar:
-    st.header("🔐 Додати інструкцію (формат PDF) ")
+    st.header("🔐 Додати інструкцію (формат pdf, txt)")
     access_code = st.text_input("Введіть код доступу:", type="password")
-    
     if access_code == "3003": 
-        st.subheader("📊 Постійна статистика")
-        
         stats_file = "stats.csv"
-        
         if os.path.exists(stats_file):
             df_stats = pd.read_csv(stats_file)
-            
-            # Відображення таблиці з новими колонками та розгортанням
-            st.dataframe(
-                df_stats[::-1], 
-                use_container_width=True,
-                column_config={
-                    "Запит": st.column_config.TextColumn(
-                        "Запит",
-                        width="medium",
-                        help="Натисніть на клітинку, щоб побачити повний текст"
-                    ),
-                    "Інструкція": st.column_config.TextColumn("Інструкція"),
-                    "Тип": st.column_config.TextColumn("Тип")
-                }
-            )
-            
-            # Детальний перегляд останнього запиту
-            with st.expander("🔍 Перегляд останнього питання"):
-                if not df_stats.empty:
-                    st.write(f"**Запит:** {df_stats.iloc[-1]['Запит']}")
-                    st.write(f"**Інструкція:** {df_stats.iloc[-1]['Інструкція']}")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                csv_download = df_stats.to_csv(index=False).encode('utf-8-sig')
-                st.download_button(label="📥 CSV", data=csv_download, file_name=f"stats_pchu5.csv", mime="text/csv")
-            with col2:
-                if st.button("🗑️ Очистити", type="secondary"):
-                    os.remove(stats_file)
-                    st.rerun()
-        else:
-            st.info("Історія порожня")
+            st.dataframe(df_stats[::-1], use_container_width=True)
+            if st.button("🗑️ Очистити статистику"):
+                os.remove(stats_file)
+                st.rerun()
 
-# --- 6. ОСНОВНИЙ ІНТЕРФЕЙС ---
+# --- 6. ОСНОВНИЙ ІНТЕРФЕЙС (ОНОВЛЕНО: ДОДАНО ЕКСПЕРТ) ---
 available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
 if not available_files:
     st.error("Файли не знайдені!")
     st.stop()
 
 selected_option = st.selectbox("Оберіть інструкцію:", available_files)
-answer_mode = st.radio("Тип відповіді:", ["Стисла (тези)", "Розгорнута (детально)"], horizontal=True)
+
+# Додано третій варіант "Експерт"
+answer_mode = st.radio("Тип відповіді:", ["Стисла", "Розгорнута", "Експерт"], horizontal=True)
 
 full_document_text = extract_text_from_pdf(selected_option)
 
-user_query = st.text_input("Пошук", placeholder="Введіть запитання та натисніть Enter...", key="query_field", label_visibility="collapsed")
+user_query = st.text_input("Пошук", placeholder="Введіть запитання...", key="query_field", label_visibility="collapsed")
 
-search_button = st.button("🔍 Пошук", type="primary")
-clear_button = st.button("🗑️ Очистити поле", type="secondary", on_click=clear_search_field)
+col_left, col_right = st.columns(2)
+with col_left:
+    search_button = st.button("🔍 Пошук", type="primary")
+with col_right:
+    st.button("🗑️ Очистити", type="secondary", on_click=clear_search_field)
 
-# --- 7. ЛОГІКА ВІДПОВІДІ (З ПІДТРИМКОЮ ENTER ТА ЖОРСТКИМИ ПРАВИЛАМИ) ---
+# --- 7. ЛОГІКА ВІДПОВІДІ (ОНОВЛЕНО: ГІБРИДНИЙ ПОШУК ТА КОЛЬОРИ) ---
 enter_pressed = user_query != "" and st.session_state.last_processed_query != user_query
 
 if search_button or enter_pressed:
     if not user_query:
         st.warning("Будь ласка, введіть запитання.")
     elif not full_document_text:
-        st.error("Помилка зчитування файлу.")
+        st.error("Помилка файлу.")
     else:
         st.session_state.last_processed_query = user_query
         
-        with st.status("Обробка запиту...", expanded=True) as status:
-            st.write("📖 Аналізую зміст...")
-            # Залишаємо вибірку контексту (top_k=35 допомагає знайти дані на дальніх сторінках)
-            context = get_relevant_context(user_query, full_document_text, top_k=35)
+        with st.status("Процес аналізу...", expanded=True) as status:
+            st.write("📖 Пошук у документах...")
+            context = get_relevant_context(user_query, full_document_text, top_k=40)
             
-            st.write("🤖 Формую відповідь...")
+            st.write("🤖 Генерація відповіді...")
             
-            # --- ОСНОВНА ЗМІНА ТУТ: НОВИЙ СУВОРИЙ ПРОМПТ ---
-            prompt = (
-                f"Ти — технічний асистент ПЧУ-5. Твоє завдання: відповідати на запитання, "
-                f"використовуючи ВИКЛЮЧНО наданий Контекст.\n\n"
-                f"ПРАВИЛА:\n"
-                f"1. Якщо в Контексті немає інформації про '{user_query}' (наприклад, номер білета поза межами наявних або сторонні теми), "
-                f"відповідай лише так: 'На жаль, у вибраній інструкції інформація за вашим запитом відсутня'.\n"
-                f"2. Категорично заборонено використовувати власні знання про світ.\n"
-                f"3. Відповідь має бути у стилі: {answer_mode}.\n\n"
-                f"Контекст: {context}\n\n"
-                f"Питання: {user_query}\n\n"
-                f"Мова: українська."
-            )
+            # Логіка формування промпту залежно від режиму
+            if answer_mode == "Експерт":
+                # РЕЖИМ ЕКСПЕРТ: PDF + ЗОВНІШНІ ЗНАННЯ
+                prompt = (
+                    f"Ти — провідний технічний експерт ПЧУ-5. Твоє завдання: надати максимально глибоку відповідь.\n\n"
+                    f"ВИКОРИСТОВУЙ:\n"
+                    f"1. Дані з Контексту (як базу).\n"
+                    f"2. Свої внутрішні знання, технічні стандарти та інформацію з інтернету для розширення відповіді.\n\n"
+                    f"Контекст: {context}\n\n"
+                    f"Питання: {user_query}\n\n"
+                    f"Стиль: Максимально детальний експертний аналіз. Мова: українська."
+                )
+            else:
+                # ЗВИЧАЙНІ РЕЖИМИ: СУВОРО PDF
+                prompt = (
+                    f"Ти — асистент ПЧУ-5. Відповідай ВИКЛЮЧНО за наданим Контекстом.\n\n"
+                    f"ПРАВИЛА:\n"
+                    f"1. Якщо в Контексті немає відповіді на '{user_query}', відповідай: 'На жаль, у вибраній інструкції інформація за вашим запитом відсутня'.\n"
+                    f"2. Не використовуй зовнішні знання.\n\n"
+                    f"Контекст: {context}\n\n"
+                    f"Питання: {user_query}\n\n"
+                    f"Стиль: {answer_mode}. Мова: українська."
+                )
             
             answer, used_model, used_key = get_ai_response(prompt)
             
             if answer:
-                status.update(label="✅ Завершено!", state="complete", expanded=False)
+                status.update(label="✅ Готово!", state="complete", expanded=False)
                 
-                # Запис у статистику (без змін)
+                # Запис статистики
                 now = datetime.now() + timedelta(hours=2)
-                new_data = {
-                    "Дата": now.strftime("%d.%m.%Y"),
-                    "Час": now.strftime("%H:%M:%S"),
-                    "Інструкція": selected_option,
-                    "Тип": answer_mode,
-                    "Запит": user_query,
-                    "ШІ": used_model.replace("models/", ""),
-                    "Ключ": used_key
-                }
-                
-                df_entry = pd.DataFrame([new_data])
-                stats_file = "stats.csv"
-                if not os.path.isfile(stats_file):
-                    df_entry.to_csv(stats_file, index=False, encoding='utf-8-sig')
-                else:
-                    df_entry.to_csv(stats_file, mode='a', header=False, index=False, encoding='utf-8-sig')
-            else:
-                status.update(label="❌ Помилка", state="error", expanded=True)
+                new_data = {"Дата": now.strftime("%d.%m.%Y"), "Час": now.strftime("%H:%M:%S"), 
+                            "Інструкція": selected_option, "Тип": answer_mode, "Запит": user_query, 
+                            "ШІ": used_model, "Ключ": used_key}
+                pd.DataFrame([new_data]).to_csv("stats.csv", mode='a', header=not os.path.exists("stats.csv"), index=False, encoding='utf-8-sig')
 
         if answer:
             st.subheader("Результат:")
-            st.markdown(f'<div class="answer-card">{answer}</div>', unsafe_allow_html=True)
+            # Вибір класу рамки: синій для Експерта, зелений для інших
+            card_style = "expert-card" if answer_mode == "Експерт" else "answer-card"
+            st.markdown(f'<div class="{card_style}">{answer}</div>', unsafe_allow_html=True)
 
 # --- 8. ПІДПИС ---
 st.markdown(f"<div style='text-align: center; color: gray; font-size: 10px; margin-top: 40px;'>© {datetime.now().year} ПЧУ-5 Сергій ШИНКАРЕНКО</div>", unsafe_allow_html=True)
