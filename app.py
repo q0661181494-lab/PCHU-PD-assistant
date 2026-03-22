@@ -131,7 +131,7 @@ def get_ai_response(prompt):
 
 # --- 5. БОКОВА ПАНЕЛЬ (РОЗШИРЕНА СТАТИСТИКА ТА КЕРУВАННЯ) ---
 with st.sidebar:
-    st.header("🔐 Адмін-панель")
+    st.header("🔐 Адмін-панель (додати інструкцію) ")
     access_code = st.text_input("Введіть код доступу:", type="password")
     
     if access_code == "3003": 
