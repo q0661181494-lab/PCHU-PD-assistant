@@ -2,5 +2,4 @@ streamlit
 google-generativeai
 PyPDF2
 pandas
-requests
-st-gsheets-connection
+filelock
