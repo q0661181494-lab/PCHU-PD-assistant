@@ -6,15 +6,12 @@ import random
 import pandas as pd
 import pickle
 from datetime import datetime, timedelta
-from filelock import FileLock
 
-# --- 1. ІНІЦІАЛІЗАЦІЯ СТАТИСТИКИ ---
-if "stats_history" not in st.session_state:
-    st.session_state.stats_history = []
+# --- 1. SESSION ---
 if "last_processed_query" not in st.session_state:
     st.session_state.last_processed_query = ""
 
-# --- 2. КОНФІГУРАЦІЯ СТОРІНКИ ТА CSS ---
+# --- 2. UI ---
 st.set_page_config(page_title="Бібліотека ПЧУ-5", layout="centered")
 
 st.markdown("""
@@ -23,10 +20,8 @@ st.markdown("""
     text-align: center;
     font-size: 24px;
     font-weight: bold;
-    margin-top: -40px; 
+    margin-top: -40px;
     margin-bottom: 25px;
-    line-height: 1.2;
-    color: #1E1E1E;
 }
 
 .stButton button {
@@ -34,15 +29,13 @@ st.markdown("""
     height: 55px !important;
     border-radius: 12px !important;
     font-weight: bold !important;
-    font-size: 18px !important;
 }
 
 .answer-card {
-    background-color: #ffffff;
-    padding: 22px;
-    border-radius: 15px;
+    background-color: #fff;
+    padding: 20px;
     border-left: 6px solid #28a745;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    border-radius: 10px;
     margin-top: 20px;
 }
 </style>
@@ -50,15 +43,14 @@ st.markdown("""
 
 st.markdown("<div class='main-title'>📚 РОЗУМНА ТЕХНІЧНА<br>БІБЛІОТЕКА ПЧУ-5</div>", unsafe_allow_html=True)
 
-# --- 3. PDF З КЕШЕМ ---
+# --- 3. PDF CACHE ---
 @st.cache_data(show_spinner=False)
 def extract_text_from_pdf(file_path):
     cache_file = file_path + ".pkl"
 
     if os.path.exists(cache_file):
         try:
-            with open(cache_file, "rb") as f:
-                return pickle.load(f)
+            return pickle.load(open(cache_file, "rb"))
         except:
             pass
 
@@ -71,16 +63,14 @@ def extract_text_from_pdf(file_path):
                 if t:
                     text += t + "\n"
 
-        with open(cache_file, "wb") as f:
-            pickle.dump(text, f)
-
+        pickle.dump(text, open(cache_file, "wb"))
         return text
 
     except Exception as e:
-        print("PDF ERROR:", e)
+        st.error(f"PDF ERROR: {e}")
         return ""
 
-# --- 4. CHUNKING З КЕШЕМ ---
+# --- 4. CHUNKS ---
 def load_or_create_chunks(full_text, file_name):
     cache_file = file_name + "_chunks.pkl"
 
@@ -125,115 +115,73 @@ def get_relevant_context(query, full_text, file_name, top_k=7):
 
     return "\n---\n".join([c[1] for c in scored_chunks[:top_k]])
 
-# --- 5. AI ---
-@st.cache_resource
-def get_available_models():
-    try:
-        return [
-            m.name for m in genai.list_models()
-            if 'generateContent' in m.supported_generation_methods
-        ]
-    except Exception as e:
-        print("MODEL ERROR:", e)
-        return []
-
+# --- 5. AI (СТАБІЛЬНИЙ) ---
 def get_ai_response(prompt):
     key_names = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
-    random.shuffle(key_names)
-
-    available_models = get_available_models()
 
     for name in key_names:
         if name in st.secrets:
             try:
                 genai.configure(api_key=st.secrets[name])
 
-                model_name = (
-                    'models/gemini-1.5-flash'
-                    if 'models/gemini-1.5-flash' in available_models
-                    else available_models[0] if available_models else None
-                )
-
-                if not model_name:
-                    continue
-
-                model = genai.GenerativeModel(model_name)
+                model = genai.GenerativeModel("models/gemini-1.5-flash")
                 response = model.generate_content(prompt)
 
                 if response and hasattr(response, "text"):
-                    return response.text, model_name, name
+                    return response.text, "gemini-1.5-flash", name
 
             except Exception as e:
-                print(f"AI ERROR ({name}):", e)
+                st.error(f"❌ {name}: {e}")
                 continue
 
+    st.error("❌ Жоден API ключ не працює")
     return None, None, None
 
 # --- 6. SIDEBAR ---
 with st.sidebar:
     st.header("🔐 Адмін-панель")
-    access_code = st.text_input("Введіть код доступу:", type="password")
+    access_code = st.text_input("Код:", type="password")
 
     if access_code == "3003":
-        stats_file = "stats.csv"
-
-        if os.path.exists(stats_file):
-            df_stats = pd.read_csv(stats_file)
-
-            st.dataframe(df_stats[::-1], use_container_width=True)
-
-            if st.button("🗑️ Очистити"):
-                os.remove(stats_file)
-                st.rerun()
+        if os.path.exists("stats.csv"):
+            df = pd.read_csv("stats.csv")
+            st.dataframe(df[::-1])
         else:
-            st.info("Історія порожня")
+            st.info("Немає даних")
 
-# --- 7. UI ---
-available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
+# --- 7. FILES ---
+files = [f for f in os.listdir(".") if f.endswith(".pdf")]
 
-if not available_files:
-    st.error("Файли не знайдені!")
+if not files:
+    st.error("PDF не знайдені")
     st.stop()
 
-selected_option = st.selectbox("Оберіть інструкцію:", available_files)
+selected = st.selectbox("Оберіть інструкцію:", sorted(files))
 
-answer_mode = st.radio(
-    "Тип відповіді:",
-    ["Стисла (тези)", "Розгорнута (детально)"],
-    horizontal=True
-)
+mode = st.radio("Тип відповіді:", ["Стисла (тези)", "Розгорнута (детально)"], horizontal=True)
 
-full_document_text = extract_text_from_pdf(selected_option)
+text = extract_text_from_pdf(selected)
 
-user_query = st.text_input(
-    "Пошук",
-    key="query_field",
-    placeholder="Введіть запит..."
-)
+query = st.text_input("Пошук", key="query_field")
 
-search_button = st.button("🔍 Пошук")
+btn = st.button("🔍 Пошук")
 
-# --- 8. ЛОГІКА ---
-enter_pressed = user_query != "" and st.session_state.last_processed_query != user_query
+enter = query != "" and st.session_state.last_processed_query != query
 
-if search_button or enter_pressed:
-    if not user_query:
+# --- 8. LOGIC ---
+if btn or enter:
+    if not query:
         st.warning("Введіть запит")
-    elif not full_document_text:
-        st.error("Помилка PDF")
+    elif not text:
+        st.error("PDF порожній")
     else:
-        st.session_state.last_processed_query = user_query
+        st.session_state.last_processed_query = query
 
         with st.status("Обробка..."):
 
-            context = get_relevant_context(
-                user_query,
-                full_document_text,
-                selected_option,
-                top_k=7
-            )
+            context = get_relevant_context(query, text, selected, top_k=7)
 
-            style = "тези" if "Стисла" in answer_mode else "детально"
+            style = "тези" if "Стисла" in mode else "детально"
 
             prompt = f"""
 Ти технічний експерт.
@@ -244,42 +192,38 @@ if search_button or enter_pressed:
 {context}
 
 Питання:
-{user_query}
+{query}
 
 Стиль: {style}
 Мова: українська
 """
 
-            answer, used_model, used_key = get_ai_response(prompt)
+            answer, model, key = get_ai_response(prompt)
 
             if answer:
                 st.success("Готово")
 
                 now = datetime.now() + timedelta(hours=2)
 
-                df_entry = pd.DataFrame([{
+                df = pd.DataFrame([{
                     "Дата": now.strftime("%d.%m.%Y"),
                     "Час": now.strftime("%H:%M:%S"),
-                    "Інструкція": selected_option,
-                    "Тип": answer_mode,
-                    "Запит": user_query,
-                    "ШІ": used_model,
-                    "Ключ": used_key
+                    "Файл": selected,
+                    "Тип": mode,
+                    "Запит": query,
+                    "Модель": model,
+                    "Ключ": key
                 }])
 
-                lock = FileLock("stats.lock")
+                if not os.path.exists("stats.csv"):
+                    df.to_csv("stats.csv", index=False, encoding='utf-8-sig')
+                else:
+                    df.to_csv("stats.csv", mode='a', header=False, index=False, encoding='utf-8-sig')
 
-                with lock:
-                    if not os.path.isfile("stats.csv"):
-                        df_entry.to_csv("stats.csv", index=False, encoding='utf-8-sig')
-                    else:
-                        df_entry.to_csv("stats.csv", mode='a', header=False, index=False, encoding='utf-8-sig')
+                st.markdown(f"<div class='answer-card'>{answer}</div>", unsafe_allow_html=True)
 
             else:
                 st.error("Помилка ШІ")
-
-        if answer:
-            st.markdown(f"<div class='answer-card'>{answer}</div>", unsafe_allow_html=True)
 
 # --- 9. FOOTER ---
 st.markdown(f"<div style='text-align:center;font-size:10px;'>© {datetime.now().year}</div>", unsafe_allow_html=True)
