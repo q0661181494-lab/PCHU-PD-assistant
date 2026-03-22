@@ -4,7 +4,9 @@ import PyPDF2
 import os
 import random
 import pandas as pd
+import pickle
 from datetime import datetime, timedelta
+from filelock import FileLock
 
 # --- 1. ІНІЦІАЛІЗАЦІЯ СТАТИСТИКИ ---
 if "stats_history" not in st.session_state:
@@ -12,233 +14,272 @@ if "stats_history" not in st.session_state:
 if "last_processed_query" not in st.session_state:
     st.session_state.last_processed_query = ""
 
-# --- 2. КОНФІГУРАЦІЯ СТОРІНКИ ТА ПРИМУСОВИЙ CSS ---
+# --- 2. КОНФІГУРАЦІЯ СТОРІНКИ ТА CSS ---
 st.set_page_config(page_title="Бібліотека ПЧУ-5", layout="centered")
 
 st.markdown("""
-    <style>
-    .main-title {
-        text-align: center;
-        font-size: 24px;
-        font-weight: bold;
-        margin-top: -40px; 
-        margin-bottom: 25px;
-        line-height: 1.2;
-        color: #1E1E1E;
-        display: block;
-    }
-    
-    [data-testid="stVerticalBlock"] > div:has(div.stButton) {
-        width: 100% !important;
-    }
+<style>
+.main-title {
+    text-align: center;
+    font-size: 24px;
+    font-weight: bold;
+    margin-top: -40px; 
+    margin-bottom: 25px;
+    line-height: 1.2;
+    color: #1E1E1E;
+}
 
-    .stButton {
-        width: 100% !important;
-    }
+.stButton button {
+    width: 100% !important;
+    height: 55px !important;
+    border-radius: 12px !important;
+    font-weight: bold !important;
+    font-size: 18px !important;
+}
 
-    div[data-testid="stButton"] button {
-        width: 100% !important;
-        display: block !important;
-        height: 55px !important;
-        border-radius: 12px !important;
-        font-weight: bold !important;
-        font-size: 18px !important;
-        margin-top: 8px !important;
-        margin-bottom: 8px !important;
-        border: none !important;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
-        transition: all 0.2s ease-in-out !important;
-    }
-    
-    div[data-testid="stButton"] button[kind="primary"] {
-        background-color: #28a745 !important;
-        color: white !important;
-    }
-    div[data-testid="stButton"] button[kind="secondary"] {
-        background-color: #6c757d !important;
-        color: white !important;
-    }
-
-    div[data-testid="stButton"] button:active {
-        transform: scale(0.98) !important;
-    }
-
-    .answer-card {
-        background-color: #ffffff;
-        padding: 22px;
-        border-radius: 15px;
-        border-left: 6px solid #28a745;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        color: #1E1E1E;
-        line-height: 1.6;
-        margin-top: 20px;
-        font-size: 16px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+.answer-card {
+    background-color: #ffffff;
+    padding: 22px;
+    border-radius: 15px;
+    border-left: 6px solid #28a745;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    margin-top: 20px;
+}
+</style>
+""", unsafe_allow_html=True)
 
 st.markdown("<div class='main-title'>📚 РОЗУМНА ТЕХНІЧНА<br>БІБЛІОТЕКА ПЧУ-5</div>", unsafe_allow_html=True)
 
-# --- 3. ДОПОМІЖНІ ФУНКЦІЇ (ОПТИМІЗОВАНО ДЛЯ ВЕЛИКИХ PDF) ---
-def clear_search_field():
-    st.session_state["query_field"] = ""
-    st.session_state["last_processed_query"] = ""
-
-@st.cache_data
+# --- 3. PDF З КЕШЕМ ---
+@st.cache_data(show_spinner=False)
 def extract_text_from_pdf(file_path):
+    cache_file = file_path + ".pkl"
+
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, "rb") as f:
+                return pickle.load(f)
+        except:
+            pass
+
     text = ""
     try:
         with open(file_path, "rb") as f:
             reader = PyPDF2.PdfReader(f)
             for page in reader.pages:
                 t = page.extract_text()
-                if t: text += t + "\n"
-        return text
-    except: return ""
+                if t:
+                    text += t + "\n"
 
-def get_relevant_context(query, full_text, top_k=35):
-    # Збільшено розмір шматка до 5000 символів для кращого охоплення змісту
-    chunks = [full_text[i:i+6000] for i in range(0, len(full_text), 5000)]
-    if not query: return "\n".join(chunks[:5])
-    
+        with open(cache_file, "wb") as f:
+            pickle.dump(text, f)
+
+        return text
+
+    except Exception as e:
+        print("PDF ERROR:", e)
+        return ""
+
+# --- 4. CHUNKING З КЕШЕМ ---
+def load_or_create_chunks(full_text, file_name):
+    cache_file = file_name + "_chunks.pkl"
+
+    if os.path.exists(cache_file):
+        try:
+            return pickle.load(open(cache_file, "rb"))
+        except:
+            pass
+
+    paragraphs = full_text.split("\n\n")
+
+    chunks = []
+    current = ""
+
+    for p in paragraphs:
+        if len(current) + len(p) < 5000:
+            current += p + "\n"
+        else:
+            chunks.append(current)
+            current = p
+
+    if current:
+        chunks.append(current)
+
+    pickle.dump(chunks, open(cache_file, "wb"))
+    return chunks
+
+def get_relevant_context(query, full_text, file_name, top_k=7):
+    chunks = load_or_create_chunks(full_text, file_name)
+
+    if not query:
+        return "\n---\n".join(chunks[:5])
+
     query_words = query.lower().split()
     scored_chunks = []
+
     for chunk in chunks:
-        # Простий, але дієвий підрахунок входжень ключових слів
         score = sum(chunk.lower().count(word) for word in query_words)
         scored_chunks.append((score, chunk))
-    
+
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
-    # Повертаємо 35 найбільш релевантних шматків (Gemini Flash це опрацює миттєво)
+
     return "\n---\n".join([c[1] for c in scored_chunks[:top_k]])
 
-# --- 4. РОБОТА З ШІ (API) ---
+# --- 5. AI ---
+@st.cache_resource
+def get_available_models():
+    try:
+        return [
+            m.name for m in genai.list_models()
+            if 'generateContent' in m.supported_generation_methods
+        ]
+    except Exception as e:
+        print("MODEL ERROR:", e)
+        return []
+
 def get_ai_response(prompt):
     key_names = ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"]
     random.shuffle(key_names)
+
+    available_models = get_available_models()
+
     for name in key_names:
         if name in st.secrets:
             try:
                 genai.configure(api_key=st.secrets[name])
-                available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
+
+                model_name = (
+                    'models/gemini-1.5-flash'
+                    if 'models/gemini-1.5-flash' in available_models
+                    else available_models[0] if available_models else None
+                )
+
+                if not model_name:
+                    continue
+
                 model = genai.GenerativeModel(model_name)
                 response = model.generate_content(prompt)
-                return response.text, model_name, name
-            except Exception:
-                continue 
+
+                if response and hasattr(response, "text"):
+                    return response.text, model_name, name
+
+            except Exception as e:
+                print(f"AI ERROR ({name}):", e)
+                continue
+
     return None, None, None
 
-# --- 5. БОКОВА ПАНЕЛЬ (РОЗШИРЕНА СТАТИСТИКА ТА КЕРУВАННЯ) ---
+# --- 6. SIDEBAR ---
 with st.sidebar:
     st.header("🔐 Адмін-панель")
     access_code = st.text_input("Введіть код доступу:", type="password")
-    
-    if access_code == "3003": 
-        st.subheader("📊 Постійна статистика")
-        
+
+    if access_code == "3003":
         stats_file = "stats.csv"
-        
+
         if os.path.exists(stats_file):
             df_stats = pd.read_csv(stats_file)
-            
-            # Відображення таблиці з новими колонками та розгортанням
-            st.dataframe(
-                df_stats[::-1], 
-                use_container_width=True,
-                column_config={
-                    "Запит": st.column_config.TextColumn(
-                        "Запит",
-                        width="medium",
-                        help="Натисніть на клітинку, щоб побачити повний текст"
-                    ),
-                    "Інструкція": st.column_config.TextColumn("Інструкція"),
-                    "Тип": st.column_config.TextColumn("Тип")
-                }
-            )
-            
-            # Детальний перегляд останнього запиту
-            with st.expander("🔍 Перегляд останнього питання"):
-                if not df_stats.empty:
-                    st.write(f"**Запит:** {df_stats.iloc[-1]['Запит']}")
-                    st.write(f"**Інструкція:** {df_stats.iloc[-1]['Інструкція']}")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                csv_download = df_stats.to_csv(index=False).encode('utf-8-sig')
-                st.download_button(label="📥 CSV", data=csv_download, file_name=f"stats_pchu5.csv", mime="text/csv")
-            with col2:
-                if st.button("🗑️ Очистити", type="secondary"):
-                    os.remove(stats_file)
-                    st.rerun()
+
+            st.dataframe(df_stats[::-1], use_container_width=True)
+
+            if st.button("🗑️ Очистити"):
+                os.remove(stats_file)
+                st.rerun()
         else:
             st.info("Історія порожня")
 
-# --- 6. ОСНОВНИЙ ІНТЕРФЕЙС ---
+# --- 7. UI ---
 available_files = sorted([f for f in os.listdir(".") if f.endswith(".pdf")])
+
 if not available_files:
     st.error("Файли не знайдені!")
     st.stop()
 
 selected_option = st.selectbox("Оберіть інструкцію:", available_files)
-answer_mode = st.radio("Тип відповіді:", ["Стисла (тези)", "Розгорнута (детально)"], horizontal=True)
+
+answer_mode = st.radio(
+    "Тип відповіді:",
+    ["Стисла (тези)", "Розгорнута (детально)"],
+    horizontal=True
+)
 
 full_document_text = extract_text_from_pdf(selected_option)
 
-user_query = st.text_input("Пошук", placeholder="Введіть запитання та натисніть Enter...", key="query_field", label_visibility="collapsed")
+user_query = st.text_input(
+    "Пошук",
+    key="query_field",
+    placeholder="Введіть запит..."
+)
 
-search_button = st.button("🔍 Пошук", type="primary")
-clear_button = st.button("🗑️ Очистити поле", type="secondary", on_click=clear_search_field)
+search_button = st.button("🔍 Пошук")
 
-# --- 7. ЛОГІКА ВІДПОВІДІ (З ПІДТРИМКОЮ ENTER ТА НОВИМИ КОЛОНКАМИ) ---
+# --- 8. ЛОГІКА ---
 enter_pressed = user_query != "" and st.session_state.last_processed_query != user_query
 
 if search_button or enter_pressed:
     if not user_query:
-        st.warning("Будь ласка, введіть запитання.")
+        st.warning("Введіть запит")
     elif not full_document_text:
-        st.error("Помилка зчитування файлу.")
+        st.error("Помилка PDF")
     else:
         st.session_state.last_processed_query = user_query
-        
-        with st.status("Обробка запиту...", expanded=True) as status:
-            st.write("📖 Аналізую зміст...")
-            # Передаємо збільшену кількість контексту (top_k=35)
-            context = get_relevant_context(user_query, full_document_text, top_k=35)
-            
-            st.write("🤖 Формую відповідь...")
-            style = "тези" if answer_mode == "Стисла (тези)" else "детально з пунктами правил"
-            prompt = f"Контекст: {context}\n\nПитання: {user_query}\n\nСтиль: {style}. Українською."
-            
+
+        with st.status("Обробка..."):
+
+            context = get_relevant_context(
+                user_query,
+                full_document_text,
+                selected_option,
+                top_k=7
+            )
+
+            style = "тези" if "Стисла" in answer_mode else "детально"
+
+            prompt = f"""
+Ти технічний експерт.
+Використовуй тільки контекст.
+Якщо немає інформації — скажи "Немає інформації в документі".
+
+Контекст:
+{context}
+
+Питання:
+{user_query}
+
+Стиль: {style}
+Мова: українська
+"""
+
             answer, used_model, used_key = get_ai_response(prompt)
-            
+
             if answer:
-                status.update(label="✅ Завершено!", state="complete", expanded=False)
-                
-                # Запис у статистику (включаючи нові колонки)
+                st.success("Готово")
+
                 now = datetime.now() + timedelta(hours=2)
-                new_data = {
+
+                df_entry = pd.DataFrame([{
                     "Дата": now.strftime("%d.%m.%Y"),
                     "Час": now.strftime("%H:%M:%S"),
                     "Інструкція": selected_option,
                     "Тип": answer_mode,
                     "Запит": user_query,
-                    "ШІ": used_model.replace("models/", ""),
+                    "ШІ": used_model,
                     "Ключ": used_key
-                }
-                
-                df_entry = pd.DataFrame([new_data])
-                stats_file = "stats.csv"
-                if not os.path.isfile(stats_file):
-                    df_entry.to_csv(stats_file, index=False, encoding='utf-8-sig')
-                else:
-                    df_entry.to_csv(stats_file, mode='a', header=False, index=False, encoding='utf-8-sig')
+                }])
+
+                lock = FileLock("stats.lock")
+
+                with lock:
+                    if not os.path.isfile("stats.csv"):
+                        df_entry.to_csv("stats.csv", index=False, encoding='utf-8-sig')
+                    else:
+                        df_entry.to_csv("stats.csv", mode='a', header=False, index=False, encoding='utf-8-sig')
+
             else:
-                status.update(label="❌ Помилка", state="error", expanded=True)
+                st.error("Помилка ШІ")
 
         if answer:
-            st.subheader("Результат:")
-            st.markdown(f'<div class="answer-card">{answer}</div>', unsafe_allow_html=True)
+            st.markdown(f"<div class='answer-card'>{answer}</div>", unsafe_allow_html=True)
 
-# --- 8. ПІДПИС ---
-st.markdown(f"<div style='text-align: center; color: gray; font-size: 10px; margin-top: 40px;'>© {datetime.now().year} ПЧУ-5 Сергій ШИНКАРЕНКО</div>", unsafe_allow_html=True)
+# --- 9. FOOTER ---
+st.markdown(f"<div style='text-align:center;font-size:10px;'>© {datetime.now().year}</div>", unsafe_allow_html=True)
