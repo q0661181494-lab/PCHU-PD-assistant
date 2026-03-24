@@ -175,7 +175,7 @@ if not available_files:
     st.stop()
 
 selected_option = st.selectbox("Оберіть інструкцію:", available_files)
-answer_mode = st.radio("Тип відповіді:", ["Стисла (тези)", "Розгорнута (детально)", "Експерт"], horizontal=True)
+answer_mode = st.radio("Тип відповіді:", ["Стисла", "Детально", "Експерт"], horizontal=True)
 
 full_document_text = extract_text_from_pdf(selected_option)
 
