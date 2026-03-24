@@ -97,19 +97,16 @@ def extract_text_from_pdf(file_path):
     except: return ""
 
 def get_relevant_context(query, full_text, top_k=35):
-    # Збільшено розмір шматка до 5000 символів для кращого охоплення змісту
     chunks = [full_text[i:i+6000] for i in range(0, len(full_text), 5000)]
     if not query: return "\n".join(chunks[:5])
     
     query_words = query.lower().split()
     scored_chunks = []
     for chunk in chunks:
-        # Простий, але дієвий підрахунок входжень ключових слів
         score = sum(chunk.lower().count(word) for word in query_words)
         scored_chunks.append((score, chunk))
     
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
-    # Повертаємо 35 найбільш релевантних шматків (Gemini Flash це опрацює миттєво)
     return "\n---\n".join([c[1] for c in scored_chunks[:top_k]])
 
 # --- 4. РОБОТА З ШІ (API) ---
@@ -141,8 +138,6 @@ with st.sidebar:
         
         if os.path.exists(stats_file):
             df_stats = pd.read_csv(stats_file)
-            
-            # Відображення таблиці з новими колонками та розгортанням
             st.dataframe(
                 df_stats[::-1], 
                 use_container_width=True,
@@ -157,7 +152,6 @@ with st.sidebar:
                 }
             )
             
-            # Детальний перегляд останнього запиту
             with st.expander("🔍 Перегляд останнього питання"):
                 if not df_stats.empty:
                     st.write(f"**Запит:** {df_stats.iloc[-1]['Запит']}")
@@ -181,7 +175,8 @@ if not available_files:
     st.stop()
 
 selected_option = st.selectbox("Оберіть інструкцію:", available_files)
-answer_mode = st.radio("Тип відповіді:", ["Стисла (тези)", "Розгорнута (детально)"], horizontal=True)
+# ЗМІНЕНО: додано варіант "Експерт"
+answer_mode = st.radio("Тип відповіді:", ["Стисла (тези)", "Розгорнута (детально)", "Експерт"], horizontal=True)
 
 full_document_text = extract_text_from_pdf(selected_option)
 
@@ -203,12 +198,10 @@ if search_button or enter_pressed:
         
         with st.status("Обробка запиту...", expanded=True) as status:
             st.write("📖 Аналізую зміст...")
-            # Залишаємо вибірку контексту (top_k=35 допомагає знайти дані на дальніх сторінках)
             context = get_relevant_context(user_query, full_document_text, top_k=35)
             
             st.write("🤖 Формую відповідь...")
             
-            # --- ОСНОВНА ЗМІНА ТУТ: НОВИЙ СУВОРИЙ ПРОМПТ ---
             prompt = (
                 f"Ти — технічний асистент ПЧУ-5. Твоє завдання: відповідати на запитання, "
                 f"використовуючи ВИКЛЮЧНО наданий Контекст.\n\n"
@@ -227,7 +220,6 @@ if search_button or enter_pressed:
             if answer:
                 status.update(label="✅ Завершено!", state="complete", expanded=False)
                 
-                # Запис у статистику (без змін)
                 now = datetime.now() + timedelta(hours=2)
                 new_data = {
                     "Дата": now.strftime("%d.%m.%Y"),
